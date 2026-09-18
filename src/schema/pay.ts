@@ -222,6 +222,9 @@ function readMoney(text: string, at: number): Money | null {
   if (codeAfter !== undefined) {
     const code = codeFrom(codeAfter);
     if (code !== null) {
+      // A code on each side of an amount must name the same currency.
+      // Otherwise "USD 100 EUR per hour" silently drops the trailing EUR.
+      if (codeBefore !== undefined && codeFrom(codeBefore) !== code) return null;
       currency ??= code;
     } else {
       // "per", "an", "fixed": give the word back to the rest of the line.

@@ -86,6 +86,30 @@ test('every shape a person writes a salary in', () => {
   }
 });
 
+test('conflicting currency codes around one amount are refused', () => {
+  for (const text of [
+    'USD 100 EUR per hour',
+    'eur 100 usd per hour',
+    'SOL 2 USDC per task',
+    'ABC 10 XYZ fixed',
+    'USD 100 EUR - USD 200 per hour',
+    'USD 100 - USD 200 EUR per hour',
+  ]) {
+    assert.equal(typeof parsePayLine(text), 'string', text);
+  }
+});
+
+test('matching currency codes around one amount remain valid', () => {
+  for (const [text, currency] of [
+    ['USD 100 USD per hour', 'USD'],
+    ['usd 100 USD per hour', 'USD'],
+    ['SOL 2 sol per task', 'SOL'],
+    ['ABC 10 ABC fixed', 'ABC'],
+  ]) {
+    assert.equal(line(text).currency, currency, text);
+  }
+});
+
 test('scale suffixes do not consume currency codes or monthly periods', () => {
   for (const currency of ['MATIC', 'MXN', 'KWD']) {
     const parsed = line(`100 ${currency} per task`);
