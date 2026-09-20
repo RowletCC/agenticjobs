@@ -59,3 +59,39 @@ test('ordinary short markers retain nested lists and quotes', () => {
 test('unindented content after a list stays outside the list', () => {
   assert.equal(renderMarkdown('12345. Item\nAfter'), '<ol><li>Item</li></ol>\n<p>After</p>');
 });
+
+test('blank lines inside a list code fence remain in the code block', () => {
+  const source = [
+    '1. Example',
+    '   ```text',
+    '   alpha',
+    '',
+    '   beta',
+    '   ```',
+    '',
+    'Outside',
+  ].join('\n');
+  const html = renderMarkdown(source);
+  assert.ok(html.includes('<pre><code class="language-text">alpha\n\nbeta\n</code></pre>'), html);
+  assert.ok(html.endsWith('</ol>\n<p>Outside</p>'), html);
+});
+
+test('several whitespace-only lines do not end a nested fenced block', () => {
+  const source = [
+    '- Parent',
+    '  12345. Example',
+    '         ```',
+    '         alpha',
+    '  ',
+    '',
+    '         beta',
+    '         ```',
+  ].join('\n');
+  const html = renderMarkdown(source);
+  assert.ok(html.includes('<pre><code>alpha\n\n\nbeta\n</code></pre>'), html);
+});
+
+test('blank lines before an outside block do not pull that block into the list', () => {
+  assert.equal(renderMarkdown('- Item\n\nOutside'), '<ul><li>Item</li></ul>\n<p>Outside</p>');
+  assert.equal(renderMarkdown('- Item\n\n# Heading'), '<ul><li>Item</li></ul>\n<h1>Heading</h1>');
+});
