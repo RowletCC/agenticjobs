@@ -242,10 +242,16 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
       const body = item.join('\n');
       // A one-line item stays inline, so a bullet list does not gain a
       // paragraph's worth of vertical space per bullet.
-      const inner =
-        item.length === 1
-          ? renderInline(body, options)
-          : renderMarkdown(body, options).replace(/^<p>([\s\S]*)<\/p>$/, '$1');
+      let inner = item.length === 1 ? renderInline(body, options) : renderMarkdown(body, options);
+      // Unwrap only a single paragraph. A multi-block item can start and end
+      // with different paragraphs; removing those outer tags leaves both incomplete.
+      if (
+        item.length > 1 &&
+        inner.startsWith('<p>') &&
+        inner.indexOf('</p>') === inner.length - 4
+      ) {
+        inner = inner.slice(3, -4);
+      }
       return `<li>${inner}</li>`;
     })
     .join('');
