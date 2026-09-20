@@ -339,6 +339,11 @@ export function toPlainText(source: string, limit = 300): string {
     .replace(/[#>*_~`|]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit - 1).replace(/\s+\S*$/, '')}...`;
+  const effectiveLimit = Number.isNaN(limit) ? 300 : Math.max(0, Math.floor(limit));
+  if (text.length <= effectiveLimit) return text;
+  if (effectiveLimit <= 3) return '.'.repeat(effectiveLimit);
+  let prefix = text.slice(0, effectiveLimit - 3);
+  if (/^[\uD800-\uDBFF]$/.test(prefix.slice(-1))) prefix = prefix.slice(0, -1);
+  prefix = prefix.replace(/\s+\S*$/, '');
+  return `${prefix}...`;
 }
