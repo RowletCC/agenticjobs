@@ -124,6 +124,31 @@ test('the search text covers every section and highlight', () => {
   assert.match(text, /analytical notation/);
 });
 
+test('the search text includes prose after an entry subtitle', () => {
+  const markdown = `# Ada Lovelace
+
+## Experience
+
+### Climate Lab | Remote
+Research Engineer (2020 - Present)
+
+- Built the data pipeline.
+
+Investigated chlorophyll fluorescence with netCDF datasets.
+
+~~~text
+- Keep this code sample searchable.
+~~~
+`;
+  const text = resumeSearchText(parseResume(markdown));
+  assert.match(text, /Climate Lab/);
+  assert.match(text, /Research Engineer/);
+  assert.match(text, /Built the data pipeline/);
+  assert.match(text, /chlorophyll fluorescence with netCDF datasets/);
+  assert.match(text, /Keep this code sample searchable/);
+  assert.equal(text.match(/Research Engineer/g)?.length, 1);
+});
+
 test('the template is itself valid, with no warnings that matter', () => {
   const resume = parseResume(resumeTemplate('Ada Lovelace'));
   assert.equal(resume.name, 'Ada Lovelace');

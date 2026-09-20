@@ -322,7 +322,13 @@ export function resumeSearchText(resume: OpenResume): string {
   for (const section of resume.sections) {
     parts.push(section.title, section.markdown);
     for (const entry of section.entries) {
-      parts.push(entry.title, entry.place ?? '', entry.subtitle ?? '', ...entry.highlights);
+      parts.push(
+        entry.title,
+        entry.place ?? '',
+        entry.markdown.trim() === ''
+          ? [entry.subtitle ?? '', ...entry.highlights].filter((part) => part !== '').join('\n')
+          : entry.markdown,
+      );
     }
   }
   return parts.filter((part) => part !== '').join('\n');
