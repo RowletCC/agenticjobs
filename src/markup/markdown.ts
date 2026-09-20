@@ -336,7 +336,13 @@ export function toPlainText(source: string, limit = 300): string {
     )
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/[#>*_~`|]/g, ' ')
+    // A hash in C#, an issue number or a URL fragment is text. Only remove
+    // ATX heading markers, including optional closing hashes and quoted headings.
+    .replace(
+      /^([ \t]{0,3}(?:>[ \t]*)*)#{1,6}(?:[ \t]+|$)(.*?)[ \t]*(?:(?<=[ \t])#+)?[ \t]*$/gm,
+      '$1$2',
+    )
+    .replace(/[>*_~`|]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (text.length <= limit) return text;
