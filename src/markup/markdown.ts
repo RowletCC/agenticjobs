@@ -205,7 +205,9 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
   const first = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/.exec(lines[start] ?? '');
   if (first === null) return null;
 
-  const ordered = /\d/.test(first[2] ?? '');
+  const firstMarker = first[2] ?? '';
+  const ordered = /\d/.test(firstMarker);
+  const orderedStart = ordered ? Number.parseInt(firstMarker, 10) : 1;
   const indent = (first[1] ?? '').length;
   const items: string[][] = [];
   let index = start;
@@ -251,7 +253,8 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
     .join('');
 
   const tag = ordered ? 'ol' : 'ul';
-  return { html: `<${tag}>${rendered}</${tag}>`, next: index };
+  const startAttribute = ordered && orderedStart !== 1 ? ` start="${orderedStart}"` : '';
+  return { html: `<${tag}${startAttribute}>${rendered}</${tag}>`, next: index };
 }
 
 /** A sentinel that cannot survive escapeHtml, so it cannot be forged in input. */
