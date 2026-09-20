@@ -269,7 +269,7 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
   const rel = options.linkRel ?? DEFAULT_REL;
 
   let text = source.replace(/(`+)([\s\S]*?)\1/g, (_whole, _ticks: string, body: string) => {
-    codes.push(`<code>${escapeHtml(body.trim())}</code>`);
+    codes.push(`<code>${escapeHtml(normalizeCodeSpanBody(body))}</code>`);
     return `${MARK}${codes.length - 1}${MARK}`;
   });
 
@@ -324,6 +324,14 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
 /** Only `\(` and `\)` matter inside a link target. */
 function unescapeUrl(href: string): string {
   return href.replace(/\\([()])/g, '$1');
+}
+
+function normalizeCodeSpanBody(body: string): string {
+  const normalized = body.replace(/\r\n?|\n/g, ' ');
+  if (normalized.length >= 2 && normalized.startsWith(' ') && normalized.endsWith(' ') && /[^ ]/.test(normalized)) {
+    return normalized.slice(1, -1);
+  }
+  return normalized;
 }
 
 /** Plain text, for meta descriptions, feeds, the TUI and search snippets. */
