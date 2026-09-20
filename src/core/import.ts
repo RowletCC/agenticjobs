@@ -240,8 +240,9 @@ function runsToText(paragraph: string): string {
   for (const run of runs) {
     // Text, tabs and breaks can alternate inside one run. Run boundaries
     // must not change the text that arrives in the resume editor.
+    // A self-closing text element must not consume the next text or control.
     const pieces = [
-      ...run.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:(tab|br|cr)\b[^>]*>/g),
+      ...run.matchAll(/<w:t(?:\s[^>]*)?(?<!\/)>([\s\S]*?)<\/w:t>|<w:(tab|br|cr)\b[^>]*>/g),
     ];
     let text = pieces
       .map((piece) => (piece[1] !== undefined ? decodeXml(piece[1]) : piece[2] === 'tab' ? '  ' : '\n'))
