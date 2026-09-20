@@ -210,8 +210,8 @@ function trimSiteName(title: string): string {
 export function extractJob(html: string, sourceUrl: string): ImportedJob {
   const warnings: string[] = [];
 
-  const posting = jsonLdNodes(html).find((node) => typeOf(node).includes('JobPosting'));
-  if (posting !== undefined) {
+  const postings = jsonLdNodes(html).filter((node) => typeOf(node).includes('JobPosting'));
+  for (const posting of postings) {
     const title = typeof posting['title'] === 'string' ? posting['title'].trim() : '';
     const rawDescription =
       typeof posting['description'] === 'string' ? posting['description'] : '';
@@ -233,6 +233,8 @@ export function extractJob(html: string, sourceUrl: string): ImportedJob {
         ...(location === undefined ? {} : { location }),
       };
     }
+  }
+  if (postings.length > 0) {
     warnings.push('The page had a JobPosting but it was missing a title or a description.');
   }
 
