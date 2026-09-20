@@ -208,6 +208,7 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
   const ordered = /\d/.test(first[2] ?? '');
   const indent = (first[1] ?? '').length;
   const items: string[][] = [];
+  let contentIndent = indent + 2;
   let index = start;
 
   while (index < lines.length) {
@@ -218,7 +219,11 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
       // A different marker type at the same level starts a new list rather
       // than silently continuing this one.
       if (/\d/.test(match[2] ?? '') !== ordered) break;
-      items.push([match[3] ?? '']);
+      const content = match[3] ?? '';
+      // Each item may have a different marker width (for example 9. then 10.)
+      // or padding. Remove exactly that prefix from its continuation lines.
+      contentIndent = line.length - content.length;
+      items.push([content]);
       index += 1;
       continue;
     }
@@ -227,7 +232,7 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
     if (current === undefined) break;
     // A deeper marker, or a plain continuation line, belongs to the item above.
     if (match !== null || /^\s+\S/.test(line)) {
-      const strip = Math.min(line.length - line.trimStart().length, indent + 2);
+      const strip = Math.min(line.length - line.trimStart().length, contentIndent);
       current.push(line.slice(strip));
       index += 1;
       continue;
