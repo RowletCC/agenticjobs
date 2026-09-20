@@ -95,6 +95,20 @@ test('tables render and scroll inside themselves', () => {
   assert.ok(html.includes('text-align:right'), html);
 });
 
+test('mismatched header and delimiter rows stay ordinary text', () => {
+  const html = renderMarkdown('| a | b | c |\n| --- | --- |\n| 1 | 2 |');
+  assert.ok(!html.includes('<table>'), html);
+  assert.ok(html.includes('| a | b | c |'), html);
+});
+
+test('a supported block after a table starts its own block', () => {
+  const html = renderMarkdown('| a | b |\n| --- | --- |\n| 1 | 2 |\n# | Heading |\n- | item |\n> | quote |');
+  assert.equal(html.match(/<table>/g)?.length, 1, html);
+  assert.ok(html.includes('<h1>| Heading |</h1>'), html);
+  assert.ok(html.includes('<ul><li>| item |</li></ul>'), html);
+  assert.ok(html.includes('<blockquote><p>| quote |</p></blockquote>'), html);
+});
+
 test('lists keep single-line items inline', () => {
   const html = renderMarkdown('- one\n- two');
   assert.equal(html, '<ul><li>one</li><li>two</li></ul>');

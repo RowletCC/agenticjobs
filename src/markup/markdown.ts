@@ -160,11 +160,14 @@ function tryTable(lines: string[], start: number, options: MarkdownOptions): Blo
   });
 
   const head = splitRow(header);
+  // GFM requires the header and delimiter rows to have the same number of
+  // cells. A mismatch is ordinary text, rather than a table.
+  if (head.length !== aligns.length) return null;
   const rows: string[][] = [];
   let index = start + 2;
   while (index < lines.length) {
     const line = lines[index] ?? '';
-    if (line.trim() === '' || !line.includes('|')) break;
+    if (line.trim() === '' || !line.includes('|') || startsBlock(line)) break;
     rows.push(splitRow(line));
     index += 1;
   }
