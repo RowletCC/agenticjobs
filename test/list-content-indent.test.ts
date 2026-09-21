@@ -35,7 +35,7 @@ test('nested list content uses its own marker width', () => {
     ['- Parent', '  12345. Child', '         ```', '         nested', '         ```'].join('\n'),
   );
   assert.ok(html.includes('<ul><li><p>Parent</p>'), html);
-  assert.ok(html.includes('<ol><li><p>Child</p>'), html);
+  assert.ok(html.includes('<ol start="12345"><li><p>Child</p>'), html);
   assert.ok(html.includes('<pre><code>nested\n</code></pre>'), html);
 });
 
@@ -57,7 +57,10 @@ test('ordinary short markers retain nested lists and quotes', () => {
 });
 
 test('unindented content after a list stays outside the list', () => {
-  assert.equal(renderMarkdown('12345. Item\nAfter'), '<ol><li>Item</li></ol>\n<p>After</p>');
+  assert.equal(
+    renderMarkdown('12345. Item\nAfter'),
+    '<ol start="12345"><li>Item</li></ol>\n<p>After</p>',
+  );
 });
 
 test('blank lines inside a list code fence remain in the code block', () => {
