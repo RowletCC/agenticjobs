@@ -56,6 +56,22 @@ test('code spans keep their contents literal', () => {
   assert.ok(!html.includes('<strong>'), html);
 });
 
+test('code spans preserve boundary whitespace according to CommonMark', () => {
+  const tick = '`';
+  assert.equal(renderInline(tick + '  padded  ' + tick), '<code> padded </code>');
+  assert.equal(renderInline(tick + '   ' + tick), '<code>   </code>');
+  assert.equal(renderInline(tick + 'left ' + tick), '<code>left </code>');
+  assert.equal(renderInline(tick + ' left' + tick), '<code> left</code>');
+  assert.equal(renderInline(tick + '\tcode\t' + tick), '<code>\tcode\t</code>');
+  assert.equal(renderInline(tick + '\u00a0code\u00a0' + tick), '<code>\u00a0code\u00a0</code>');
+  assert.equal(renderInline(tick + 'literal' + tick), '<code>literal</code>');
+  assert.equal(renderInline(tick + 'line\r\nbreak' + tick), '<code>line break</code>');
+  assert.equal(renderInline(tick + 'line\rbreak' + tick), '<code>line break</code>');
+  assert.equal(renderInline(tick + 'line\nbreak' + tick), '<code>line break</code>');
+  assert.equal(renderInline(tick + '\n' + tick), '<code> </code>');
+  assert.equal(renderInline(tick + '  line\n  break  ' + tick), '<code> line   break </code>');
+});
+
 test('a fence is not parsed as markup', () => {
   const html = renderMarkdown('```\n# not a heading\n**not bold**\n```');
   assert.ok(html.startsWith('<pre><code>'), html);

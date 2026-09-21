@@ -285,10 +285,7 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
   const codes: string[] = [];
   const rel = options.linkRel ?? DEFAULT_REL;
 
-  let text = source.replace(/(`+)([\s\S]*?)\1/g, (_whole, _ticks: string, body: string) => {
-    codes.push(`<code>${escapeHtml(body.trim())}</code>`);
-    return `${MARK}${codes.length - 1}${MARK}`;
-  });
+  let text = protectCodeSpans(source, codes);
 
   text = escapeHtml(text);
 
@@ -361,6 +358,49 @@ function unescapeUrl(href: string): string {
   return href
     .replace(/\\([()])/g, '$1')
     .replace(/&(amp|lt|gt|quot|#39);/g, (whole, entity: string) => HTML_UNESCAPES[entity] ?? whole);
+}
+
+function protectCodeSpans(source: string, codes: string[]): string {
+  const runs = [...source.matchAll(/`+/g)].map((match) => ({
+    start: match.index,
+    length: match[0].length,
+    next: -1,
+  }));
+  // Precompute matching runs so unmatched openers do not rescan the suffix.
+  const nextByLength = new Map<number, number>();
+  for (let i = runs.length - 1; i >= 0; i -= 1) {
+    const run = runs[i]!;
+    run.next = nextByLength.get(run.length) ?? -1;
+    nextByLength.set(run.length, i);
+  }
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (let i = 0; i < runs.length; i += 1) {
+    const open = runs[i]!;
+    if (open.next === -1) continue;
+    const close = runs[open.next]!;
+    const body = source.slice(open.start + open.length, close.start);
+    codes.push(`<code>${escapeHtml(normalizeCodeSpanBody(body))}</code>`);
+    parts.push(source.slice(cursor, open.start), `${MARK}${codes.length - 1}${MARK}`);
+    cursor = close.start + close.length;
+    i = open.next;
+  }
+  parts.push(source.slice(cursor));
+  return parts.join('');
+}
+
+function normalizeCodeSpanBody(body: string): string {
+  const normalized = body.replace(/\r\n?|\n/g, ' ');
+  if (
+    normalized.length >= 2 &&
+    normalized.startsWith(' ') &&
+    normalized.endsWith(' ') &&
+    /[^ ]/.test(normalized)
+  ) {
+    return normalized.slice(1, -1);
+  }
+  return normalized;
 }
 
 /** Plain text, for meta descriptions, feeds, the TUI and search snippets. */
