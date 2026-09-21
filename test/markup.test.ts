@@ -219,6 +219,25 @@ test('plain text strips markup and truncates on a word boundary', () => {
   assert.ok(text.length <= 21, text);
 });
 
+test('plain text truncation honors small limits and Unicode characters', () => {
+  assert.equal(toPlainText('x'.repeat(161), 160).length, 160);
+  assert.equal(toPlainText('exact fit', 9), 'exact fit');
+  assert.equal(toPlainText('long text', 0), '');
+  assert.equal(toPlainText('long text', 1), '.');
+  assert.equal(toPlainText('long text', 2), '..');
+  assert.equal(toPlainText('long text', 3), '...');
+  assert.equal(toPlainText('long text', -1), '');
+  assert.equal(toPlainText('long text', 2.9), '..');
+  assert.equal(toPlainText('long text', Number.POSITIVE_INFINITY), 'long text');
+  assert.equal(toPlainText('😀😀😀', 2), '..');
+  assert.equal(toPlainText('😀😀😀😀😀', 4), '...');
+  const repeatedEmoji = toPlainText('😀'.repeat(100), 160);
+  assert.ok(repeatedEmoji.length <= 160, repeatedEmoji);
+  assert.ok(repeatedEmoji.isWellFormed(), repeatedEmoji);
+  assert.equal(toPlainText('界界界界界', 4), '界...');
+  assert.equal(toPlainText('one two three', 9), 'one...');
+});
+
 test('a description keeps the line breaks that are its structure', async () => {
   // clean() flattened every control character, newlines included, so a job
   // description posted from a Markdown file arrived as one paragraph and every
