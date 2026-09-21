@@ -56,6 +56,22 @@ test('code spans keep their contents literal', () => {
   assert.ok(!html.includes('<strong>'), html);
 });
 
+test('code spans preserve boundary whitespace according to CommonMark', () => {
+  const tick = '`';
+  assert.equal(renderInline(tick + '  padded  ' + tick), '<code> padded </code>');
+  assert.equal(renderInline(tick + '   ' + tick), '<code>   </code>');
+  assert.equal(renderInline(tick + 'left ' + tick), '<code>left </code>');
+  assert.equal(renderInline(tick + ' left' + tick), '<code> left</code>');
+  assert.equal(renderInline(tick + '\tcode\t' + tick), '<code>\tcode\t</code>');
+  assert.equal(renderInline(tick + '\u00a0code\u00a0' + tick), '<code>\u00a0code\u00a0</code>');
+  assert.equal(renderInline(tick + 'literal' + tick), '<code>literal</code>');
+  assert.equal(renderInline(tick + 'line\r\nbreak' + tick), '<code>line break</code>');
+  assert.equal(renderInline(tick + 'line\rbreak' + tick), '<code>line break</code>');
+  assert.equal(renderInline(tick + 'line\nbreak' + tick), '<code>line break</code>');
+  assert.equal(renderInline(tick + '\n' + tick), '<code> </code>');
+  assert.equal(renderInline(tick + '  line\n  break  ' + tick), '<code> line   break </code>');
+});
+
 test('a fence is not parsed as markup', () => {
   const html = renderMarkdown('```\n# not a heading\n**not bold**\n```');
   assert.ok(html.startsWith('<pre><code>'), html);
@@ -109,6 +125,34 @@ test('a supported block after a table starts its own block', () => {
   assert.ok(html.includes('<blockquote><p>| quote |</p></blockquote>'), html);
 });
 
+test('escaped pipes stay inside table cells and preserve later columns', () => {
+  const html = renderMarkdown(
+    '| Skill \\| Detail | Experience |\n| --- | --- |\n| Shell A\\|B | 3 years |',
+  );
+  assert.ok(html.includes('<th>Skill | Detail</th>'), html);
+  assert.ok(html.includes('<td>Shell A|B</td><td>3 years</td>'), html);
+});
+
+test('escaped pipes retain code-span backslashes and the following columns', () => {
+  const html = renderMarkdown(
+    '| One | Two | Three | Four |\n| --- | --- | --- | --- |\n| `A\\|B` | `A\\\\|B` | `A\\\\\\|B` | `A\\\\\\\\|B` |',
+  );
+  assert.ok(
+    html.includes(
+      '<td><code>A|B</code></td><td><code>A\\|B</code></td><td><code>A\\\\|B</code></td><td><code>A\\\\\\|B</code></td>',
+    ),
+    html,
+  );
+});
+
+test('table escaped pipes, empty cells, and alignment remain intact', () => {
+  const html = renderMarkdown(
+    '| A | B |\n| :--- | ---: |\n| | Note \\|',
+  );
+  assert.ok(html.includes('<td></td>'), html);
+  assert.ok(html.includes('<td style="text-align:right">Note |</td>'), html);
+});
+
 test('lists keep single-line items inline', () => {
   const html = renderMarkdown('- one\n- two');
   assert.equal(html, '<ul><li>one</li><li>two</li></ul>');
@@ -119,10 +163,93 @@ test('ordered and unordered lists do not merge', () => {
   assert.ok(html.includes('<ul>') && html.includes('<ol>'), html);
 });
 
+test('ordered lists preserve a non-default starting number', () => {
+  assert.equal(
+    renderMarkdown('3. Review\n4. Deliver'),
+    '<ol start="3"><li>Review</li><li>Deliver</li></ol>',
+  );
+  assert.equal(
+    renderMarkdown('0. Prerequisite\n1. Run'),
+    '<ol start="0"><li>Prerequisite</li><li>Run</li></ol>',
+  );
+  assert.equal(
+    renderMarkdown('3) Review\n4) Deliver'),
+    '<ol start="3"><li>Review</li><li>Deliver</li></ol>',
+  );
+});
+
+test('ordered list starts normalize leading zeroes and nested starts', () => {
+  assert.equal(renderMarkdown('01. First\n02. Second'), '<ol><li>First</li><li>Second</li></ol>');
+  assert.equal(
+    renderMarkdown('3. Parent\n   0. Child\n   1. Next\n4. Sibling'),
+    '<ol start="3"><li><p>Parent</p>\n<ol start="0"><li>Child</li><li>Next</li></ol></li><li>Sibling</li></ol>',
+  );
+});
+
 test('a bare url becomes a link, and a trailing full stop stays outside it', () => {
   const html = renderInline('see https://example.com/x.');
   assert.ok(html.includes('href="https://example.com/x"'), html);
   assert.ok(html.endsWith('.'), html);
+});
+
+test('ordinary links preserve escaped and balanced parentheses', () => {
+  const escaped = renderInline('[Example](https://example.com/reports\\(2026\\))');
+  assert.ok(escaped.includes('href="https://example.com/reports(2026)"'), escaped);
+  assert.ok(!escaped.endsWith(')'), escaped);
+
+  const balanced = renderInline('[Example](https://example.com/reports(2026))');
+  assert.ok(balanced.includes('href="https://example.com/reports(2026)"'), balanced);
+  assert.ok(!balanced.endsWith(')'), balanced);
+  const punctuation = renderInline('See [Example](https://example.com/reports(2026)).');
+  assert.ok(punctuation.includes('href="https://example.com/reports(2026)"'), punctuation);
+  assert.ok(punctuation.endsWith('</a>.'), punctuation);
+});
+
+test('ordinary images and optional link titles preserve parenthesized destinations', () => {
+  const image = renderInline('![Report](https://example.com/reports\\(2026\\).png)');
+  assert.ok(image.includes('src="https://example.com/reports(2026).png"'), image);
+  const titled = renderInline('[Example](https://example.com/reports(2026) "Annual (2026) report")', {
+    linkRel: 'nofollow',
+  });
+  assert.ok(titled.includes('href="https://example.com/reports(2026)"'), titled);
+  assert.ok(titled.includes('rel="nofollow"'), titled);
+  assert.ok(!titled.includes('Annual (2026) report'), titled);
+  for (const title of ['Annual ) report', 'Annual ( report']) {
+    const withTitle = renderInline(`[Example](https://example.com/report "${title}")`);
+    assert.equal(withTitle, '<a href="https://example.com/report" rel="nofollow ugc noopener noreferrer">Example</a>');
+  }
+  const noImages = renderInline('![Report](https://example.com/reports(2026).png)', { noImages: true });
+  assert.ok(noImages.includes('<a href="https://example.com/reports(2026).png"'), noImages);
+});
+
+test('empty inline links keep their existing literal behavior', () => {
+  const html = renderInline('[](https://example.com/reports(2026))');
+  assert.ok(html.startsWith('[]('), html);
+});
+
+test('a query string in a link target is not double-escaped', () => {
+  const html = renderInline('[jobs](https://example.com/?a=1&b=2)');
+  assert.ok(html.includes('href="https://example.com/?a=1&amp;b=2"'), html);
+  assert.ok(!html.includes('&amp;amp;'), html);
+});
+
+test('a query string in a bare url is not double-escaped', () => {
+  const html = renderInline('see https://example.com/?a=1&b=2 now');
+  assert.ok(html.includes('href="https://example.com/?a=1&amp;b=2"'), html);
+  assert.ok(!html.includes('&amp;amp;'), html);
+});
+
+test('a query string in an image source is not double-escaped', () => {
+  const html = renderInline('![chart](https://example.com/i.png?w=100&h=50)');
+  assert.ok(html.includes('src="https://example.com/i.png?w=100&amp;h=50"'), html);
+  assert.ok(!html.includes('&amp;amp;'), html);
+});
+
+test('a literal entity in a link target decodes exactly once', () => {
+  const html = renderInline('[x](https://example.com/?a=1&amp;b=2)');
+  // The source held the text "&amp;", which round-trips as &amp;amp; — the
+  // browser decodes it back to the address the author wrote.
+  assert.ok(html.includes('href="https://example.com/?a=1&amp;amp;b=2"'), html);
 });
 
 test('images can be forced to links, for documents strangers read', () => {
@@ -139,6 +266,25 @@ test('plain text strips markup and truncates on a word boundary', () => {
   assert.ok(!text.includes('**'), text);
   assert.ok(text.endsWith('...'), text);
   assert.ok(text.length <= 21, text);
+});
+
+test('plain text truncation honors small limits and Unicode characters', () => {
+  assert.equal(toPlainText('x'.repeat(161), 160).length, 160);
+  assert.equal(toPlainText('exact fit', 9), 'exact fit');
+  assert.equal(toPlainText('long text', 0), '');
+  assert.equal(toPlainText('long text', 1), '.');
+  assert.equal(toPlainText('long text', 2), '..');
+  assert.equal(toPlainText('long text', 3), '...');
+  assert.equal(toPlainText('long text', -1), '');
+  assert.equal(toPlainText('long text', 2.9), '..');
+  assert.equal(toPlainText('long text', Number.POSITIVE_INFINITY), 'long text');
+  assert.equal(toPlainText('😀😀😀', 2), '..');
+  assert.equal(toPlainText('😀😀😀😀😀', 4), '...');
+  const repeatedEmoji = toPlainText('😀'.repeat(100), 160);
+  assert.ok(repeatedEmoji.length <= 160, repeatedEmoji);
+  assert.ok(repeatedEmoji.isWellFormed(), repeatedEmoji);
+  assert.equal(toPlainText('界界界界界', 4), '界...');
+  assert.equal(toPlainText('one two three', 9), 'one...');
 });
 
 test('a description keeps the line breaks that are its structure', async () => {
