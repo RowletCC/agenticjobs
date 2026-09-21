@@ -28,7 +28,7 @@ for (const surface of ['configured', 'directory'] as const) {
               urls.map((server) => ({ server, token: null })),
               query,
             )
-          : await federatedSearch(targetsFromUrls(urls), query);
+          : await federatedSearch(targetsFromUrls(urls), query, { allowPrivate: true });
       assert.deepEqual(
         result.jobs.map((hit) => hit.job.slug),
         ['paid', 'no-salary'],
