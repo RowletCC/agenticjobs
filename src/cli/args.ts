@@ -31,6 +31,7 @@ const BOOLEAN_FLAGS = new Set([
   'unsupervised',
   'draft',
   'salary-unpaid',
+  'unpaid',
   'publish',
   'following',
   'candidate',
