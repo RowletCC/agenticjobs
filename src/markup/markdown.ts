@@ -193,12 +193,26 @@ function tryTable(lines: string[], start: number, options: MarkdownOptions): Blo
 }
 
 function splitRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, '')
-    .replace(/\|$/, '')
-    .split('|')
-    .map((cell) => cell.trim());
+  const trimmed = line.trim();
+  const cells: string[] = [];
+  let cell = '';
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const character = trimmed[index] ?? '';
+    if (character !== '|') {
+      cell += character;
+      continue;
+    }
+    if (index > 0 && trimmed[index - 1] === '\\') {
+      cell = cell.slice(0, -1) + '|';
+      continue;
+    }
+    cells.push(cell.trim());
+    cell = '';
+  }
+  cells.push(cell.trim());
+  if (trimmed.startsWith('|')) cells.shift();
+  if (trimmed.endsWith('|') && trimmed[trimmed.length - 2] !== '\\') cells.pop();
+  return cells;
 }
 
 function tryList(lines: string[], start: number, options: MarkdownOptions): Block | null {

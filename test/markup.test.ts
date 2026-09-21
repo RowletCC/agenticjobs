@@ -95,6 +95,34 @@ test('tables render and scroll inside themselves', () => {
   assert.ok(html.includes('text-align:right'), html);
 });
 
+test('escaped pipes stay inside table cells and preserve later columns', () => {
+  const html = renderMarkdown(
+    '| Skill \\| Detail | Experience |\n| --- | --- |\n| Shell A\\|B | 3 years |',
+  );
+  assert.ok(html.includes('<th>Skill | Detail</th>'), html);
+  assert.ok(html.includes('<td>Shell A|B</td><td>3 years</td>'), html);
+});
+
+test('escaped pipes retain code-span backslashes and the following columns', () => {
+  const html = renderMarkdown(
+    '| One | Two | Three | Four |\n| --- | --- | --- | --- |\n| `A\\|B` | `A\\\\|B` | `A\\\\\\|B` | `A\\\\\\\\|B` |',
+  );
+  assert.ok(
+    html.includes(
+      '<td><code>A|B</code></td><td><code>A\\|B</code></td><td><code>A\\\\|B</code></td><td><code>A\\\\\\|B</code></td>',
+    ),
+    html,
+  );
+});
+
+test('table escaped pipes, empty cells, and alignment remain intact', () => {
+  const html = renderMarkdown(
+    '| A | B |\n| :--- | ---: |\n| | Note \\|',
+  );
+  assert.ok(html.includes('<td></td>'), html);
+  assert.ok(html.includes('<td style="text-align:right">Note |</td>'), html);
+});
+
 test('lists keep single-line items inline', () => {
   const html = renderMarkdown('- one\n- two');
   assert.equal(html, '<ul><li>one</li><li>two</li></ul>');
