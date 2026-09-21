@@ -224,6 +224,7 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
   const orderedStart = ordered ? Number.parseInt(firstMarker, 10) : 1;
   const indent = (first[1] ?? '').length;
   const items: string[][] = [];
+  let contentIndent = indent + 2;
   let index = start;
 
   while (index < lines.length) {
@@ -234,16 +235,38 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
       // A different marker type at the same level starts a new list rather
       // than silently continuing this one.
       if (/\d/.test(match[2] ?? '') !== ordered) break;
-      items.push([match[3] ?? '']);
+      const content = match[3] ?? '';
+      // Each item may have a different marker width (for example 9. then 10.)
+      // or padding. Remove exactly that prefix from its continuation lines.
+      contentIndent = line.length - content.length;
+      items.push([content]);
       index += 1;
       continue;
     }
 
     const current = items[items.length - 1];
     if (current === undefined) break;
+    if (line.trim() === '') {
+      // A blank run continues the item only when followed by indented content.
+      // Keep it in the item so fenced code does not end at its first blank line.
+      let next = index + 1;
+      while (next < lines.length && (lines[next] ?? '').trim() === '') next += 1;
+      const following = lines[next] ?? '';
+      if (
+        next === lines.length ||
+        following.length - following.trimStart().length < contentIndent
+      ) {
+        break;
+      }
+      while (index < next) {
+        current.push((lines[index] ?? '').slice(contentIndent));
+        index += 1;
+      }
+      continue;
+    }
     // A deeper marker, or a plain continuation line, belongs to the item above.
     if (match !== null || /^\s+\S/.test(line)) {
-      const strip = Math.min(line.length - line.trimStart().length, indent + 2);
+      const strip = Math.min(line.length - line.trimStart().length, contentIndent);
       current.push(line.slice(strip));
       index += 1;
       continue;
