@@ -125,8 +125,18 @@ function kindOf(title: string): string {
 const PRESENT = /\b(present|now|current|ongoing)\b/i;
 
 export function parseResume(source: string): OpenResume {
+  return parseDocument(source).resume;
+}
+
+/** The original body, with only lines promoted to the rendered header removed. */
+export function resumeBodyMarkdown(source: string): string {
+  return parseDocument(source).body;
+}
+
+function parseDocument(source: string): { resume: OpenResume; body: string } {
   const markdown = source.replace(/\r\n?/g, '\n').trim();
   const lines = markdown.split('\n');
+  const headerLines = new Set<number>();
   const warnings: string[] = [];
 
   let name: string | null = null;
@@ -156,7 +166,7 @@ export function parseResume(source: string): OpenResume {
     section = null;
   };
 
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     // Code examples may contain every resume marker. Keep the block in its
     // current body without interpreting headings, contacts, roles or bullets.
     const opening: RegExpExecArray | null = fenceEnd === null ? /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line) : null;
@@ -184,6 +194,7 @@ export function parseResume(source: string): OpenResume {
         name = (h1[1] ?? '').trim();
         seenH1 = true;
         inPreamble = true;
+        headerLines.add(index);
       }
       continue;
     }
@@ -219,13 +230,17 @@ export function parseResume(source: string): OpenResume {
       const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
       if (bullet !== null) {
         const field = parseContact(bullet[1] ?? '');
-        if (field !== null) contact.push(field);
+        if (field !== null) {
+          contact.push(field);
+          headerLines.add(index);
+        }
         continue;
       }
       if (line.trim() !== '' && headline === null && !line.startsWith('#')) {
         // A single prose line under the name, before any section, reads as a
         // headline on every resume that has one.
         headline = cleanHeadline(line);
+        if (headline !== null) headerLines.add(index);
       }
       continue;
     }
@@ -259,7 +274,10 @@ export function parseResume(source: string): OpenResume {
     warnings.push('No experience section found. Employers filter on it.');
   }
 
-  return { name, headline, contact, sections, markdown, warnings };
+  return {
+    resume: { name, headline, contact, sections, markdown, warnings },
+    body: lines.filter((_, index) => !headerLines.has(index)).join('\n'),
+  };
 }
 
 /** `- **Email**: a@b.com`, `- Email: a@b.com`, `- [GitHub](https://...)`. */
