@@ -178,6 +178,41 @@ test('a bare url becomes a link, and a trailing full stop stays outside it', () 
   assert.ok(html.endsWith('.'), html);
 });
 
+test('ordinary links preserve escaped and balanced parentheses', () => {
+  const escaped = renderInline('[Example](https://example.com/reports\\(2026\\))');
+  assert.ok(escaped.includes('href="https://example.com/reports(2026)"'), escaped);
+  assert.ok(!escaped.endsWith(')'), escaped);
+
+  const balanced = renderInline('[Example](https://example.com/reports(2026))');
+  assert.ok(balanced.includes('href="https://example.com/reports(2026)"'), balanced);
+  assert.ok(!balanced.endsWith(')'), balanced);
+  const punctuation = renderInline('See [Example](https://example.com/reports(2026)).');
+  assert.ok(punctuation.includes('href="https://example.com/reports(2026)"'), punctuation);
+  assert.ok(punctuation.endsWith('</a>.'), punctuation);
+});
+
+test('ordinary images and optional link titles preserve parenthesized destinations', () => {
+  const image = renderInline('![Report](https://example.com/reports\\(2026\\).png)');
+  assert.ok(image.includes('src="https://example.com/reports(2026).png"'), image);
+  const titled = renderInline('[Example](https://example.com/reports(2026) "Annual (2026) report")', {
+    linkRel: 'nofollow',
+  });
+  assert.ok(titled.includes('href="https://example.com/reports(2026)"'), titled);
+  assert.ok(titled.includes('rel="nofollow"'), titled);
+  assert.ok(!titled.includes('Annual (2026) report'), titled);
+  for (const title of ['Annual ) report', 'Annual ( report']) {
+    const withTitle = renderInline(`[Example](https://example.com/report "${title}")`);
+    assert.equal(withTitle, '<a href="https://example.com/report" rel="nofollow ugc noopener noreferrer">Example</a>');
+  }
+  const noImages = renderInline('![Report](https://example.com/reports(2026).png)', { noImages: true });
+  assert.ok(noImages.includes('<a href="https://example.com/reports(2026).png"'), noImages);
+});
+
+test('empty inline links keep their existing literal behavior', () => {
+  const html = renderInline('[](https://example.com/reports(2026))');
+  assert.ok(html.startsWith('[]('), html);
+});
+
 test('a query string in a link target is not double-escaped', () => {
   const html = renderInline('[jobs](https://example.com/?a=1&b=2)');
   assert.ok(html.includes('href="https://example.com/?a=1&amp;b=2"'), html);

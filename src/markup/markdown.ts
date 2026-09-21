@@ -318,27 +318,7 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
 
   text = escapeHtml(text);
 
-  // Images before links: the syntax differs only by the leading character.
-  text = text.replace(
-    /!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
-    (whole, alt: string, href: string) => {
-      const url = safeUrl(unescapeUrl(href));
-      if (url === null) return whole;
-      if (options.noImages === true) {
-        return `<a href="${escapeHtml(url)}" rel="${rel}">${alt === '' ? escapeHtml(url) : alt}</a>`;
-      }
-      return `<img src="${escapeHtml(url)}" alt="${alt}" loading="lazy" />`;
-    },
-  );
-
-  text = text.replace(
-    /\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
-    (whole, label: string, href: string) => {
-      const url = safeUrl(unescapeUrl(href));
-      if (url === null) return whole;
-      return `<a href="${escapeHtml(url)}" rel="${rel}">${label}</a>`;
-    },
-  );
+  text = replaceInlineLinks(text, options, rel);
 
   // Bare URLs. Trailing punctuation is left outside the link, because a URL at
   // the end of a sentence is the common case and the full stop is not part of
@@ -366,6 +346,79 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
     return codes[Number(id)] ?? '';
   });
 }
+
+function replaceInlineLinks(text: string, options: MarkdownOptions, rel: string): string {
+  let result = '';
+  let cursor = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const image = text.startsWith('![', index);
+    const link = text[index] === '[';
+    if (!image && !link) continue;
+    const labelStart = image ? index + 2 : index + 1;
+    const labelEnd = text.indexOf(']', labelStart);
+    if (labelEnd < labelStart || text[labelEnd + 1] !== '(') continue;
+    if (!image && labelEnd === labelStart) continue;
+    const parsed = parseLinkDestination(text, labelEnd + 1);
+    if (parsed === null) continue;
+    const label = text.slice(labelStart, labelEnd);
+    const url = safeUrl(unescapeUrl(parsed.href));
+    if (url === null) continue;
+    result += text.slice(cursor, index);
+    if (image) {
+      result +=
+        options.noImages === true
+          ? `<a href="${escapeHtml(url)}" rel="${rel}">${label === '' ? escapeHtml(url) : label}</a>`
+          : `<img src="${escapeHtml(url)}" alt="${label}" loading="lazy" />`;
+    } else {
+      result += `<a href="${escapeHtml(url)}" rel="${rel}">${label}</a>`;
+    }
+    cursor = parsed.end + 1;
+    index = parsed.end;
+  }
+  return result + text.slice(cursor);
+}
+
+interface ParsedLinkDestination {
+  href: string;
+  end: number;
+}
+
+function parseLinkDestination(text: string, open: number): ParsedLinkDestination | null {
+  let depth = 0;
+  let index = open + 1;
+  while (index < text.length) {
+    const character = text[index] ?? '';
+    if (character === '\\' && index + 1 < text.length) {
+      index += 2;
+      continue;
+    }
+    if (character === '(') {
+      depth += 1;
+    } else if (/\s/.test(character)) {
+      if (depth !== 0) return null;
+      const href = text.slice(open + 1, index);
+      const titleStart = text.slice(index).search(/\S/);
+      if (titleStart < 0) return null;
+      const title = index + titleStart;
+      if (!text.startsWith('&quot;', title)) return null;
+      const titleEnd = text.indexOf('&quot;', title + 6);
+      if (titleEnd < 0) return null;
+      let close = titleEnd + 6;
+      while (/\s/.test(text[close] ?? '')) close += 1;
+      return text[close] === ')' && href !== '' ? { href, end: close } : null;
+    } else if (character === ')') {
+      if (depth === 0) {
+        const inner = text.slice(open + 1, index);
+        const match = /^(\S+?)(?:\s+&quot;[^&]*&quot;)?$/.exec(inner);
+        return match === null ? null : { href: match[1] ?? '', end: index };
+      }
+      depth -= 1;
+    }
+    index += 1;
+  }
+  return null;
+}
+
 
 const HTML_UNESCAPES: Record<string, string> = {
   amp: '&',
