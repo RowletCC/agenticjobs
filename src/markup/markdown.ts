@@ -68,7 +68,7 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): s
     }
 
     // Closing hashes require a preceding space or tab; the hash in C# is text.
-    const heading = /^(#{1,6})\s+(.*?)\s*(?:(?<=[ \t])#+)?\s*$/.exec(line);
+    const heading = /^ {0,3}(#{1,6})(?:[ \t]+(.*?)[ \t]*(?:(?<=[ \t])#+)?[ \t]*)?$/.exec(line);
     if (heading !== null) {
       const raw = (heading[1] ?? '#').length + (options.headingOffset ?? 0);
       const level = Math.min(6, Math.max(1, raw));
@@ -132,7 +132,7 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): s
 function startsBlock(line: string): boolean {
   return (
     /^\s{0,3}(`{3,}|~{3,})/.test(line) ||
-    /^#{1,6}\s/.test(line) ||
+    /^ {0,3}#{1,6}(?:[ \t]|$)/.test(line) ||
     /^\s{0,3}>/.test(line) ||
     /^\s{0,3}([-*_])\s*(\1\s*){2,}$/.test(line) ||
     /^\s{0,3}([-*+]|\d{1,9}[.)])\s+/.test(line)
@@ -421,7 +421,6 @@ function parseLinkDestination(text: string, open: number): ParsedLinkDestination
   }
   return null;
 }
-
 
 const HTML_UNESCAPES: Record<string, string> = {
   amp: '&',
