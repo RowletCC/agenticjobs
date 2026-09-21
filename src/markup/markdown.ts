@@ -330,7 +330,7 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
     // The match ran on escaped text, so decode before trimming: an entity's
     // own `;` would otherwise count as trailing punctuation and corrupt it.
     const decoded = unescapeUrl(href);
-    const trimmed = decoded.replace(/[.,;:!?)]+$/, '');
+    const trimmed = trimBareUrl(decoded);
     const tail = decoded.slice(trimmed.length);
     const url = safeUrl(trimmed);
     if (url === null) return `${lead}${href}`;
@@ -348,6 +348,28 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
   return text.replace(new RegExp(`${MARK}(\\d+)${MARK}`, 'g'), (_whole, id: string) => {
     return codes[Number(id)] ?? '';
   });
+}
+
+/** Keep balanced URL parentheses; only surrounding prose belongs outside the link. */
+function trimBareUrl(url: string): string {
+  let excessClosers = 0;
+  for (const character of url) {
+    if (character === ')') excessClosers += 1;
+    else if (character === '(') excessClosers -= 1;
+  }
+  let end = url.length;
+  while (end > 0) {
+    const last = url[end - 1] ?? '';
+    if (/[.,;:!?]/.test(last)) {
+      end -= 1;
+    } else if (last === ')' && excessClosers > 0) {
+      end -= 1;
+      excessClosers -= 1;
+    } else {
+      break;
+    }
+  }
+  return url.slice(0, end);
 }
 
 function replaceInlineLinks(text: string, options: MarkdownOptions, rel: string): string {
@@ -421,7 +443,6 @@ function parseLinkDestination(text: string, open: number): ParsedLinkDestination
   }
   return null;
 }
-
 
 const HTML_UNESCAPES: Record<string, string> = {
   amp: '&',
