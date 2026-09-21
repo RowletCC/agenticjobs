@@ -42,7 +42,7 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): s
     }
 
     // Fenced code, taken first so nothing inside a fence is parsed as markup.
-    const fence = /^\s{0,3}(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)\s*$/.exec(line);
+    const fence = /^\s{0,3}(`{3,}|~{3,})\s*([A-Za-z0-9_+#-]*)\s*$/.exec(line);
     if (fence !== null) {
       // The closing fence needs the same character and at least the opening
       // length, or a shorter fence inside the content would end the block
@@ -193,21 +193,38 @@ function tryTable(lines: string[], start: number, options: MarkdownOptions): Blo
 }
 
 function splitRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, '')
-    .replace(/\|$/, '')
-    .split('|')
-    .map((cell) => cell.trim());
+  const trimmed = line.trim();
+  const cells: string[] = [];
+  let cell = '';
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const character = trimmed[index] ?? '';
+    if (character !== '|') {
+      cell += character;
+      continue;
+    }
+    if (index > 0 && trimmed[index - 1] === '\\') {
+      cell = cell.slice(0, -1) + '|';
+      continue;
+    }
+    cells.push(cell.trim());
+    cell = '';
+  }
+  cells.push(cell.trim());
+  if (trimmed.startsWith('|')) cells.shift();
+  if (trimmed.endsWith('|') && trimmed[trimmed.length - 2] !== '\\') cells.pop();
+  return cells;
 }
 
 function tryList(lines: string[], start: number, options: MarkdownOptions): Block | null {
   const first = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/.exec(lines[start] ?? '');
   if (first === null) return null;
 
-  const ordered = /\d/.test(first[2] ?? '');
+  const firstMarker = first[2] ?? '';
+  const ordered = /\d/.test(firstMarker);
+  const orderedStart = ordered ? Number.parseInt(firstMarker, 10) : 1;
   const indent = (first[1] ?? '').length;
   const items: string[][] = [];
+  let contentIndent = indent + 2;
   let index = start;
 
   while (index < lines.length) {
@@ -218,16 +235,38 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
       // A different marker type at the same level starts a new list rather
       // than silently continuing this one.
       if (/\d/.test(match[2] ?? '') !== ordered) break;
-      items.push([match[3] ?? '']);
+      const content = match[3] ?? '';
+      // Each item may have a different marker width (for example 9. then 10.)
+      // or padding. Remove exactly that prefix from its continuation lines.
+      contentIndent = line.length - content.length;
+      items.push([content]);
       index += 1;
       continue;
     }
 
     const current = items[items.length - 1];
     if (current === undefined) break;
+    if (line.trim() === '') {
+      // A blank run continues the item only when followed by indented content.
+      // Keep it in the item so fenced code does not end at its first blank line.
+      let next = index + 1;
+      while (next < lines.length && (lines[next] ?? '').trim() === '') next += 1;
+      const following = lines[next] ?? '';
+      if (
+        next === lines.length ||
+        following.length - following.trimStart().length < contentIndent
+      ) {
+        break;
+      }
+      while (index < next) {
+        current.push((lines[index] ?? '').slice(contentIndent));
+        index += 1;
+      }
+      continue;
+    }
     // A deeper marker, or a plain continuation line, belongs to the item above.
     if (match !== null || /^\s+\S/.test(line)) {
-      const strip = Math.min(line.length - line.trimStart().length, indent + 2);
+      const strip = Math.min(line.length - line.trimStart().length, contentIndent);
       current.push(line.slice(strip));
       index += 1;
       continue;
@@ -242,16 +281,23 @@ function tryList(lines: string[], start: number, options: MarkdownOptions): Bloc
       const body = item.join('\n');
       // A one-line item stays inline, so a bullet list does not gain a
       // paragraph's worth of vertical space per bullet.
-      const inner =
-        item.length === 1
-          ? renderInline(body, options)
-          : renderMarkdown(body, options).replace(/^<p>([\s\S]*)<\/p>$/, '$1');
+      let inner = item.length === 1 ? renderInline(body, options) : renderMarkdown(body, options);
+      // Unwrap only a single paragraph. A multi-block item can start and end
+      // with different paragraphs; removing those outer tags leaves both incomplete.
+      if (
+        item.length > 1 &&
+        inner.startsWith('<p>') &&
+        inner.indexOf('</p>') === inner.length - 4
+      ) {
+        inner = inner.slice(3, -4);
+      }
       return `<li>${inner}</li>`;
     })
     .join('');
 
   const tag = ordered ? 'ol' : 'ul';
-  return { html: `<${tag}>${rendered}</${tag}>`, next: index };
+  const startAttribute = ordered && orderedStart !== 1 ? ` start="${orderedStart}"` : '';
+  return { html: `<${tag}${startAttribute}>${rendered}</${tag}>`, next: index };
 }
 
 /** A sentinel that cannot survive escapeHtml, so it cannot be forged in input. */
@@ -268,10 +314,7 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
   const codes: string[] = [];
   const rel = options.linkRel ?? DEFAULT_REL;
 
-  let text = source.replace(/(`+)([\s\S]*?)\1/g, (_whole, _ticks: string, body: string) => {
-    codes.push(`<code>${escapeHtml(body.trim())}</code>`);
-    return `${MARK}${codes.length - 1}${MARK}`;
-  });
+  let text = protectCodeSpans(source, codes);
 
   text = escapeHtml(text);
 
@@ -281,8 +324,11 @@ export function renderInline(source: string, options: MarkdownOptions = {}): str
   // the end of a sentence is the common case and the full stop is not part of
   // it.
   text = text.replace(/(^|[\s(])(https?:\/\/[^\s<>"']+)/g, (_whole, lead: string, href: string) => {
-    const trimmed = href.replace(/[.,;:!?)]+$/, '');
-    const tail = href.slice(trimmed.length);
+    // The match ran on escaped text, so decode before trimming: an entity's
+    // own `;` would otherwise count as trailing punctuation and corrupt it.
+    const decoded = unescapeUrl(href);
+    const trimmed = decoded.replace(/[.,;:!?)]+$/, '');
+    const tail = decoded.slice(trimmed.length);
     const url = safeUrl(trimmed);
     if (url === null) return `${lead}${href}`;
     return `${lead}<a href="${escapeHtml(url)}" rel="${rel}">${escapeHtml(trimmed)}</a>${tail}`;
@@ -373,9 +419,70 @@ function parseLinkDestination(text: string, open: number): ParsedLinkDestination
   return null;
 }
 
-/** Only `\(` and `\)` matter inside a link target. */
+
+const HTML_UNESCAPES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  '#39': "'",
+};
+
+/**
+ * Hrefs are captured after escapeHtml, so every `&` in the source arrives as
+ * `&amp;`. Emitted like that it would be escaped a second time — `&amp;amp;`
+ * decodes back to `&amp;`, and a query like `?a=1&b=2` reaches the server as
+ * one parameter instead of two. Decode the five entities escapeHtml produces
+ * in a single pass; matching `&amp;` in the alternation keeps a literal `&lt;`
+ * in the source as `&lt;` rather than decoding it twice to `<`.
+ */
 function unescapeUrl(href: string): string {
-  return href.replace(/\\([()])/g, '$1');
+  return href
+    .replace(/\\([()])/g, '$1')
+    .replace(/&(amp|lt|gt|quot|#39);/g, (whole, entity: string) => HTML_UNESCAPES[entity] ?? whole);
+}
+
+function protectCodeSpans(source: string, codes: string[]): string {
+  const runs = [...source.matchAll(/`+/g)].map((match) => ({
+    start: match.index,
+    length: match[0].length,
+    next: -1,
+  }));
+  // Precompute matching runs so unmatched openers do not rescan the suffix.
+  const nextByLength = new Map<number, number>();
+  for (let i = runs.length - 1; i >= 0; i -= 1) {
+    const run = runs[i]!;
+    run.next = nextByLength.get(run.length) ?? -1;
+    nextByLength.set(run.length, i);
+  }
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (let i = 0; i < runs.length; i += 1) {
+    const open = runs[i]!;
+    if (open.next === -1) continue;
+    const close = runs[open.next]!;
+    const body = source.slice(open.start + open.length, close.start);
+    codes.push(`<code>${escapeHtml(normalizeCodeSpanBody(body))}</code>`);
+    parts.push(source.slice(cursor, open.start), `${MARK}${codes.length - 1}${MARK}`);
+    cursor = close.start + close.length;
+    i = open.next;
+  }
+  parts.push(source.slice(cursor));
+  return parts.join('');
+}
+
+function normalizeCodeSpanBody(body: string): string {
+  const normalized = body.replace(/\r\n?|\n/g, ' ');
+  if (
+    normalized.length >= 2 &&
+    normalized.startsWith(' ') &&
+    normalized.endsWith(' ') &&
+    /[^ ]/.test(normalized)
+  ) {
+    return normalized.slice(1, -1);
+  }
+  return normalized;
 }
 
 /** Plain text, for meta descriptions, feeds, the TUI and search snippets. */
@@ -388,9 +495,20 @@ export function toPlainText(source: string, limit = 300): string {
     )
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/[#>*_~`|]/g, ' ')
+    // A hash in C#, an issue number or a URL fragment is text. Only remove
+    // ATX heading markers, including optional closing hashes and quoted headings.
+    .replace(
+      /^([ \t]{0,3}(?:>[ \t]*)*)#{1,6}(?:[ \t]+|$)(.*?)[ \t]*(?:(?<=[ \t])#+)?[ \t]*$/gm,
+      '$1$2',
+    )
+    .replace(/[>*_~`|]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit - 1).replace(/\s+\S*$/, '')}...`;
+  const effectiveLimit = Number.isNaN(limit) ? 300 : Math.max(0, Math.floor(limit));
+  if (text.length <= effectiveLimit) return text;
+  if (effectiveLimit <= 3) return '.'.repeat(effectiveLimit);
+  let prefix = text.slice(0, effectiveLimit - 3);
+  if (/^[\uD800-\uDBFF]$/.test(prefix.slice(-1))) prefix = prefix.slice(0, -1);
+  prefix = prefix.replace(/\s+\S*$/, '');
+  return `${prefix}...`;
 }
