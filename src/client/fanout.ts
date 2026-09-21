@@ -61,6 +61,9 @@ export async function searchEverywhere(
     error: null,
   }));
   const jobs: FanoutHit[] = [];
+  const relevantByBoard: FanoutHit[][] = boards.map(() => []);
+  const preserveRelevance =
+    query.sort === 'relevant' && typeof query.q === 'string' && query.q.trim() !== '';
 
   await Promise.all(
     boards.map(async (board, index) => {
@@ -113,7 +116,9 @@ export async function searchEverywhere(
 
         // Prepare the whole prefix first: a failed board must not contribute
         // partial hits while being excluded from the successful source totals.
-        jobs.push(...staged.slice(0, window));
+        const accepted = staged.slice(0, window);
+        relevantByBoard[index] = accepted;
+        if (!preserveRelevance) jobs.push(...accepted);
         source.count = Math.min(staged.length, window);
         source.total = reportedTotal;
         source.ok = true;
@@ -125,11 +130,23 @@ export async function searchEverywhere(
     }),
   );
 
+  if (preserveRelevance) {
+    const maxRank = Math.max(0, ...relevantByBoard.map((hits) => hits.length));
+    // No cross-board relevance score is exposed by the API. Interleave each
+    // board's ranked page, using configured board order to break rank ties.
+    for (let rank = 0; rank < maxRank; rank += 1) {
+      for (const hits of relevantByBoard) {
+        const hit = hits[rank];
+        if (hit !== undefined) jobs.push(hit);
+      }
+    }
+  }
+
   // Each board sorted its own page; "newest" across three boards is none of
   // those orders, so it is redone here.
   if (query.sort === 'salary') {
     jobs.sort((a, b) => annualisedTopSalary(b.job.salary) - annualisedTopSalary(a.job.salary));
-  } else {
+  } else if (!preserveRelevance) {
     jobs.sort((a, b) => published(b.job) - published(a.job));
   }
 
@@ -148,7 +165,9 @@ function normaliseLimit(limit: number | undefined): number {
 }
 
 function normaliseOffset(offset: number | undefined): number {
-  return Number.isSafeInteger(offset) ? Math.min(MAX_FANOUT_OFFSET, Math.max(0, offset as number)) : 0;
+  return Number.isSafeInteger(offset)
+    ? Math.min(MAX_FANOUT_OFFSET, Math.max(0, offset as number))
+    : 0;
 }
 
 function published(job: Job): number {
