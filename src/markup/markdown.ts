@@ -42,7 +42,7 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): s
     }
 
     // Fenced code, taken first so nothing inside a fence is parsed as markup.
-    const fence = /^\s{0,3}(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)\s*$/.exec(line);
+    const fence = /^\s{0,3}(`{3,}|~{3,})\s*([A-Za-z0-9_+#-]*)\s*$/.exec(line);
     if (fence !== null) {
       // The closing fence needs the same character and at least the opening
       // length, or a shorter fence inside the content would end the block
