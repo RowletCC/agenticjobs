@@ -105,6 +105,29 @@ test('ordered and unordered lists do not merge', () => {
   assert.ok(html.includes('<ul>') && html.includes('<ol>'), html);
 });
 
+test('ordered lists preserve a non-default starting number', () => {
+  assert.equal(
+    renderMarkdown('3. Review\n4. Deliver'),
+    '<ol start="3"><li>Review</li><li>Deliver</li></ol>',
+  );
+  assert.equal(
+    renderMarkdown('0. Prerequisite\n1. Run'),
+    '<ol start="0"><li>Prerequisite</li><li>Run</li></ol>',
+  );
+  assert.equal(
+    renderMarkdown('3) Review\n4) Deliver'),
+    '<ol start="3"><li>Review</li><li>Deliver</li></ol>',
+  );
+});
+
+test('ordered list starts normalize leading zeroes and nested starts', () => {
+  assert.equal(renderMarkdown('01. First\n02. Second'), '<ol><li>First</li><li>Second</li></ol>');
+  assert.equal(
+    renderMarkdown('3. Parent\n   0. Child\n   1. Next\n4. Sibling'),
+    '<ol start="3"><li><p>Parent</p>\n<ol start="0"><li>Child</li><li>Next</li></ol></li><li>Sibling</li></ol>',
+  );
+});
+
 test('a bare url becomes a link, and a trailing full stop stays outside it', () => {
   const html = renderInline('see https://example.com/x.');
   assert.ok(html.includes('href="https://example.com/x"'), html);
