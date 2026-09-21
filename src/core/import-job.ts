@@ -51,7 +51,7 @@ const DEAD =
 function stripTags(html: string): string {
   return html
     .replace(DEAD, ' ')
-    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<br(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>/gi, '\n')
     .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
     .replace(/<li[^>]*>/gi, '- ')
     .replace(/<[^>]+>/g, ' ');
@@ -72,12 +72,15 @@ function decode(text: string): string {
       };
       const key = body.toLowerCase();
       if (named[key] !== undefined) return named[key];
-      if (body.startsWith('#x') || body.startsWith('#X')) {
-        const code = Number.parseInt(body.slice(2), 16);
-        return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
-      }
       if (body.startsWith('#')) {
-        const code = Number.parseInt(body.slice(1), 10);
+        const hex = key.startsWith('#x');
+        const code = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
+        // HTML replaces null, surrogates and values outside Unicode with
+        // U+FFFD. In particular, an external page must not make fromCodePoint
+        // throw and prevent an otherwise readable draft from being imported.
+        if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+          return '\uFFFD';
+        }
         return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
       }
       return whole;
@@ -97,10 +100,10 @@ function tidy(text: string): string {
 function metaContent(html: string, key: string): string | null {
   // Attribute order varies, so both orders are tried rather than assumed.
   // Only the opening delimiter closes content; the other quote is plain text.
-  const content = `content=(?:"([^"]*)"|'([^']*)')`;
+  const content = `content\\s*=\\s*(?:"([^"]*)"|'([^']*)')`;
   const patterns = [
-    new RegExp(`<meta[^>]+(?:property|name)=["']${key}["'][^>]+${content}`, 'i'),
-    new RegExp(`<meta[^>]+${content}[^>]+(?:property|name)=["']${key}["']`, 'i'),
+    new RegExp(`<meta[^>]+(?:property|name)\\s*=\\s*["']${key}["'][^>]+${content}`, 'i'),
+    new RegExp(`<meta[^>]+${content}[^>]+(?:property|name)\\s*=\\s*["']${key}["']`, 'i'),
   ];
   for (const pattern of patterns) {
     const match = pattern.exec(html);
@@ -114,7 +117,7 @@ function metaContent(html: string, key: string): string | null {
 function jsonLdNodes(html: string): Record<string, unknown>[] {
   const nodes: Record<string, unknown>[] = [];
   const blocks = html.matchAll(
-    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+    /<script[^>]+type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
   );
   for (const block of blocks) {
     const source = block[1] ?? '';
@@ -153,11 +156,13 @@ function typeOf(node: Record<string, unknown>): string[] {
   return [];
 }
 
-/** schema.org spells it MONTHLY, PART_TIME and so on. */
+/** Normalize schema.org employment values into the board's local names. */
 function employmentTypeOf(value: unknown): EmploymentType | undefined {
   const raw = Array.isArray(value) ? value[0] : value;
   if (typeof raw !== 'string') return undefined;
   const normalised = raw.toLowerCase().replace(/_/g, '-').trim();
+  if (normalised === 'contractor') return 'contract';
+  if (normalised === 'intern') return 'internship';
   return (EMPLOYMENT_TYPES as readonly string[]).includes(normalised)
     ? (normalised as EmploymentType)
     : undefined;
@@ -180,7 +185,13 @@ function locationOf(node: Record<string, unknown>): string | undefined {
   if (typeof address === 'string') return address;
   if (typeof address !== 'object' || address === null) return undefined;
   const parts = ['addressLocality', 'addressRegion', 'addressCountry']
-    .map((key) => (address as Record<string, unknown>)[key])
+    .map((key) => {
+      const value = (address as Record<string, unknown>)[key];
+      if (key !== 'addressLocality' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        return (value as Record<string, unknown>)['name'];
+      }
+      return value;
+    })
     .filter((part): part is string => typeof part === 'string' && part.trim() !== '');
   return parts.length === 0 ? undefined : parts.join(', ');
 }
@@ -210,7 +221,14 @@ function trimSiteName(title: string): string {
 export function extractJob(html: string, sourceUrl: string): ImportedJob {
   const warnings: string[] = [];
 
-  const posting = jsonLdNodes(html).find((node) => typeOf(node).includes('JobPosting'));
+  // @type may use the vocabulary term or its full schema.org IRI.
+  const posting = jsonLdNodes(html).find((node) =>
+    typeOf(node).some((type) =>
+      ['JobPosting', 'http://schema.org/JobPosting', 'https://schema.org/JobPosting'].includes(
+        type,
+      ),
+    ),
+  );
   if (posting !== undefined) {
     const title = typeof posting['title'] === 'string' ? posting['title'].trim() : '';
     const rawDescription =

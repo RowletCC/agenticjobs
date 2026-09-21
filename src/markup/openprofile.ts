@@ -103,6 +103,15 @@ function identityLines(contact: ResumeContact[], resumeUrl: string): string[] {
   return lines;
 }
 
+/** Preserve query and fragment suffixes while retaining bare-path deduplication. */
+function accountKey(href: string): string {
+  const parsed = URL.parse(href);
+  if (parsed === null) return href;
+  return parsed.search === '' && parsed.hash === ''
+    ? parsed.href.replace(/\/+$/, '')
+    : parsed.href;
+}
+
 /** Every http(s) link the resume carries, as `- [label](url)`, deduplicated. */
 function accountLines(parsed: OpenResume): string[] {
   const seen = new Set<string>();
@@ -110,7 +119,7 @@ function accountLines(parsed: OpenResume): string[] {
   const add = (label: string, href: string): void => {
     // URL parsing normalises the scheme and host, preserving case in the
     // path, query and fragment where it can identify a different page.
-    const key = (URL.parse(href)?.href ?? href).replace(/\/+$/, '');
+    const key = accountKey(href);
     if (seen.has(key)) return;
     seen.add(key);
     lines.push(`- [${label.replace(/[[\]]/g, '')}](${href})`);
