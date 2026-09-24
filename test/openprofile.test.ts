@@ -256,3 +256,27 @@ test('scheme and host casing still deduplicate accounts across contact and Links
     '- [Portfolio](HTTPS://PORTFOLIO.EXAMPLE/Work)',
   ]);
 });
+
+test('parentheses in account URLs survive contact and Links parsing', () => {
+  const md = openProfileFromResume(
+    source(`# Ada Lovelace
+
+- [Portfolio](https://portfolio.example/work(2026))
+
+## Links
+
+- [Paper](https://papers.example/review(2025))
+`),
+  );
+  assert.deepEqual(md.split('\n').filter((line) => line.startsWith('- [')), [
+    '- [Portfolio](https://portfolio.example/work(2026))',
+    '- [Paper](https://papers.example/review(2025))',
+  ]);
+});
+
+test('an optional link title is not included in an account URL', () => {
+  const md = openProfileFromResume(
+    source('# Ada\n\n## Links\n\n- [Paper](https://papers.example/review(2025) "Draft")\n'),
+  );
+  assert.ok(md.includes('- [Paper](https://papers.example/review(2025))'), md);
+});

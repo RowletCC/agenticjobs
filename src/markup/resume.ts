@@ -280,14 +280,47 @@ function parseDocument(source: string): { resume: OpenResume; body: string } {
   };
 }
 
+/** Read a Markdown link without mistaking a parenthesis in its URL for the closing one. */
+export function parseMarkdownLink(text: string): { label: string; href: string; end: number } | null {
+  const opening = /^\[([^\]]+)\]\(/.exec(text);
+  if (opening === null) return null;
+  let href = '';
+  let depth = 0;
+  for (let index = opening[0].length; index < text.length; index += 1) {
+    const character = text[index] ?? '';
+    if (character === '\\' && /[()]/.test(text[index + 1] ?? '')) {
+      href += text[++index];
+    } else if (character === '(') {
+      depth += 1;
+      href += character;
+    } else if (character === ')') {
+      if (depth > 0) {
+        depth -= 1;
+        href += character;
+      } else {
+        return href === '' ? null : { label: opening[1] ?? '', href, end: index };
+      }
+    } else if (/\s/.test(character)) {
+      // An optional link title follows the URL; it is not part of the account.
+      const title = /^\s+"[^"]*"\s*\)/.exec(text.slice(index));
+      return title === null || href === ''
+        ? null
+        : { label: opening[1] ?? '', href, end: index + title[0].length - 1 };
+    } else {
+      href += character;
+    }
+  }
+  return null;
+}
+
 /** `- **Email**: a@b.com`, `- Email: a@b.com`, `- [GitHub](https://...)`. */
 function parseContact(raw: string): ResumeContact | null {
   const text = raw.trim();
   if (text === '') return null;
 
-  const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(text);
-  if (link !== null) {
-    return { key: (link[1] ?? '').trim(), value: (link[1] ?? '').trim(), href: link[2] ?? null };
+  const link = parseMarkdownLink(text);
+  if (link !== null && link.end === text.length - 1) {
+    return { key: link.label.trim(), value: link.label.trim(), href: link.href };
   }
 
   // "- **Tel:** +49" closes the bold after the colon, and "- **Tel: +49**"
@@ -304,9 +337,9 @@ function parseContact(raw: string): ResumeContact | null {
   }
   const key = (pair[1] ?? '').trim();
   const rawValue = (pair[2] ?? '').trim();
-  const inner = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(rawValue);
-  if (inner !== null) {
-    return { key, value: (inner[1] ?? '').trim(), href: inner[2] ?? null };
+  const inner = parseMarkdownLink(rawValue);
+  if (inner !== null && inner.end === rawValue.length - 1) {
+    return { key, value: inner.label.trim(), href: inner.href };
   }
   const value = stripMarkdown(rawValue);
   return { key, value, href: hrefFor(value) };
