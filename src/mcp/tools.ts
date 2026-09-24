@@ -506,6 +506,7 @@ export async function callTool(
         'seniority',
         'agentPolicy',
         'tag',
+        'tags',
         'salaryMin',
         'limit',
         'offset',
