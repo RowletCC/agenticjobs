@@ -70,7 +70,10 @@ export function validateApplication(
   policy: Job['agentPolicy'],
 ): { ok: true; value: ValidatedApplication } | { ok: false; problems: ValidationProblem[] } {
   const problems: ValidationProblem[] = [];
-  const answers: Record<string, string> = {};
+  // Field names come from an employer's published schema. Use a plain
+  // dictionary without Object.prototype setters so names such as `__proto__`
+  // remain ordinary answer keys and survive JSON serialization.
+  const answers = Object.create(null) as Record<string, string>;
 
   for (const field of schema.fields) {
     const raw = input[field.name];
