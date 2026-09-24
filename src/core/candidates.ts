@@ -33,7 +33,7 @@ function skillsOf(resume: Resume): string[] {
 
   const fromBullets = sections
     .flatMap((section) => section.markdown.split('\n'))
-    .map((line) => line.replace(/^\s*[-*+]\s+/, '').trim())
+    .map((line) => line.replace(/^\s*(?:[-*+]|\d{1,9}[.)])\s+/, '').trim())
     // A skills bullet is very often "**Languages:** JavaScript, Go", and the
     // label is a category rather than a skill. Without dropping it the first
     // badge on the card reads "**Languages:** JavaScript". The colon may
