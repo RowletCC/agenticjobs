@@ -490,6 +490,21 @@ function normaliseApply(input: Record<string, unknown>): ApplyMethod | string {
 
 const FIELD_TYPES = ['text', 'textarea', 'email', 'url', 'select', 'file'] as const;
 
+function applyOptions(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const options: string[] = [];
+  for (const entry of value) {
+    const option = clean(entry, 80);
+    const key = option.toLowerCase();
+    if (key === '' || seen.has(key)) continue;
+    seen.add(key);
+    options.push(option);
+    if (options.length >= 30) break;
+  }
+  return options;
+}
+
 export function normaliseApplySchema(input: unknown): ApplySchema | null {
   if (typeof input !== 'object' || input === null) return null;
   const fields = (input as Record<string, unknown>)['fields'];
@@ -513,7 +528,7 @@ export function normaliseApplySchema(input: unknown): ApplySchema | null {
         ? (type as (typeof FIELD_TYPES)[number])
         : 'text',
       required: field['required'] === true,
-      ...(Array.isArray(field['options']) ? { options: parseList(field['options'], 30, 80) } : {}),
+      ...(Array.isArray(field['options']) ? { options: applyOptions(field['options']) } : {}),
       ...(clean(field['help'], 200) ? { help: clean(field['help'], 200) } : {}),
       maxLength: Math.min(20_000, Math.max(1, Number(field['maxLength']) || 2000)),
     });
