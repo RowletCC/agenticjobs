@@ -120,12 +120,15 @@ export function pathForQuery(query: JobQuery): string | null {
   ) {
     return null;
   }
-  if (query.tags.length > MAX_PATH_TAGS) return null;
   if (query.salaryMin !== null && (query.salaryMin % 1000 !== 0 || query.salaryMin > 9_999_000)) {
     return null;
   }
-  const tags = [...query.tags].map((tag) => tag.toLowerCase());
-  if (tags.some((tag) => !TAG.test(tag) || tag.includes('.') || isFilterWord(tag))) return null;
+  const normalizedTags = query.tags.map((tag) => tag.toLowerCase());
+  if (normalizedTags.some((tag) => !TAG.test(tag) || tag.includes('.') || isFilterWord(tag))) {
+    return null;
+  }
+  const tags = [...new Set(normalizedTags)];
+  if (tags.length > MAX_PATH_TAGS) return null;
   tags.sort();
 
   const segments = [
