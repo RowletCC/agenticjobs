@@ -227,34 +227,52 @@ export async function postUpdate(
   const column = target.kind === 'employer' ? 'org_id' : 'user_id';
   const owner = target.kind === 'employer' ? target.orgId : target.userId;
 
-  // The rate limit and the duplicate check are one round trip, and both are
-  // asked of the AUTHOR rather than of the target: posting the same thing to
-  // four employers you belong to is the spam this is here to stop.
-  const recent = await pool.query<{ today: string; same: string }>(
-    `select count(*) filter (where created_at > now() - interval '24 hours') as today,
-            count(*) filter (where body = $2 and created_at > now() - interval '30 days') as same
-       from updates where author_id = $1`,
-    [authorId, body],
-  );
-  const today = Number(recent.rows[0]?.today ?? 0);
-  const same = Number(recent.rows[0]?.same ?? 0);
-  if (today >= DAILY_LIMIT) {
-    return `That is ${DAILY_LIMIT} updates today, which is the limit. Tomorrow.`;
-  }
-  if (same > 0) return 'You already posted that. Say something else, or link it again later.';
+  // The limits and insert share an author-scoped transaction lock. Without
+  // it, two tabs can both pass the checks before either inserts, duplicating
+  // a post or exceeding the daily limit.
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [authorId]);
 
-  const created = await pool.query<UpdateRow>(
-    `with inserted as (
-       insert into updates (${column}, author_id, body, link)
-       values ($1, $2, $3, $4)
-       returning id, body, link, created_at, org_id, user_id
-     )
-     ${selectFrom('inserted')}`,
-    [owner, authorId, body, link],
-  );
-  const row = created.rows[0];
-  if (row === undefined) throw new Error('update insert returned no row');
-  return toUpdate(row);
+    // Count the AUTHOR rather than the target: posting the same thing to four
+    // employers they belong to is the spam this is here to stop.
+    const recent = await client.query<{ today: string; same: string }>(
+      `select count(*) filter (where created_at > statement_timestamp() - interval '24 hours') as today,
+              count(*) filter (where body = $2 and created_at > statement_timestamp() - interval '30 days') as same
+         from updates where author_id = $1`,
+      [authorId, body],
+    );
+    const today = Number(recent.rows[0]?.today ?? 0);
+    const same = Number(recent.rows[0]?.same ?? 0);
+    if (today >= DAILY_LIMIT) {
+      await client.query('rollback');
+      return `That is ${DAILY_LIMIT} updates today, which is the limit. Tomorrow.`;
+    }
+    if (same > 0) {
+      await client.query('rollback');
+      return 'You already posted that. Say something else, or link it again later.';
+    }
+
+    const created = await client.query<UpdateRow>(
+      `with inserted as (
+         insert into updates (${column}, author_id, body, link)
+         values ($1, $2, $3, $4)
+         returning id, body, link, created_at, org_id, user_id
+       )
+       ${selectFrom('inserted')}`,
+      [owner, authorId, body, link],
+    );
+    const row = created.rows[0];
+    if (row === undefined) throw new Error('update insert returned no row');
+    await client.query('commit');
+    return toUpdate(row);
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 function cap(limit: number): number {
