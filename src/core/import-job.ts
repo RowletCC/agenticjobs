@@ -54,7 +54,7 @@ function stripTags(html: string): string {
     .replace(/<br(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>/gi, '\n')
     .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
     .replace(/<li[^>]*>/gi, '- ')
-    .replace(/<[^>]+>/g, ' ');
+    .replace(/<\/?[a-z][^<>]*>/gi, ' ');
 }
 
 /** The five named entities plus numeric ones; enough for text nobody will re-parse. */
