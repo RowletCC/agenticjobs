@@ -90,7 +90,7 @@ export function validateApplication(
     }
     if (field.type === 'url') {
       try {
-        const url = new URL(value.includes('://') ? value : `https://${value}`);
+        const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`);
         if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('scheme');
         answers[field.name] = url.toString();
         continue;
