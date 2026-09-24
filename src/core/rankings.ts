@@ -61,7 +61,7 @@ export function createRankings(
         pool.query<{ slug: string; name: string; day: string; views: number }>(
           `select j.slug, j.title || ' at ' || o.name as name, v.day::text as day, v.views
              from job_views v join jobs j on j.id = v.job_id join organisations o on o.id = j.org_id
-            where ${live} and v.views > 0 and v.day >= current_date - 400`,
+            where ${live} and v.views > 0`,
         ),
         pool.query<{ slug: string; name: string; at: string }>(
           `select j.slug, j.title || ' at ' || o.name as name, coalesce(a.submitted_at, a.created_at) as at
