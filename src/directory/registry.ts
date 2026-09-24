@@ -153,7 +153,7 @@ export async function getInstance(pool: pg.Pool, url: string): Promise<InstanceL
 /** Every topic the directory knows about, most-used first. */
 export async function listTopics(pool: pg.Pool): Promise<{ topic: string; instances: number }[]> {
   const result = await pool.query<{ topic: string; instances: number }>(
-    `select topic, count(*)::bigint as instances
+    `select topic, count(distinct instances.id)::bigint as instances
        from instances, jsonb_array_elements_text(descriptor -> 'topics') as topic
       where blocked = false
       group by topic
