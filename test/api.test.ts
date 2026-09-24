@@ -2910,6 +2910,36 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       }
     });
 
+    test('a repeated descriptor topic counts its instance once', async () => {
+      if (pool === null) return;
+      const { randomUUID } = await import('node:crypto');
+      const topic = `repeat-${randomUUID()}`;
+      const first = `https://${randomUUID()}.example`;
+      const second = `https://${randomUUID()}.example`;
+      try {
+        await pool.query(
+          `insert into instances (url, descriptor) values
+             ($1, $2::jsonb), ($3, $4::jsonb)`,
+          [
+            first,
+            JSON.stringify({ topics: [topic, topic] }),
+            second,
+            JSON.stringify({ topics: [topic] }),
+          ],
+        );
+        const response = await get('/api/v1/directory/topics');
+        assert.equal(response.status, 200);
+        const body = (await response.json()) as {
+          items: { topic: string; instances: number | string }[];
+        };
+        const found = body.items.find((item) => item.topic === topic);
+        assert.ok(found, 'the announced topic is listed');
+        assert.equal(Number(found.instances), 2);
+      } finally {
+        await pool.query(`delete from instances where url = any($1::text[])`, [[first, second]]);
+      }
+    });
+
     test('a board refuses to list itself', async () => {
       // The flagship is both a board and the directory it names, so this is
       // the case that would otherwise put it in its own listing. Refused on

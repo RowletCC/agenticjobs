@@ -68,6 +68,7 @@ export function inboxRoutes(): Hono<AppEnv> {
     const { pool } = c.get('deps');
     const candidate = (input['candidate'] ?? '').trim();
     const employer = (input['employer'] ?? '').trim();
+    if (candidate !== '' && employer !== '') return null;
     if (candidate !== '') {
       const resume = await getPublicResume(pool, candidate);
       if (resume === null) return null;
