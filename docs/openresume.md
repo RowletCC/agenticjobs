@@ -108,7 +108,10 @@ Two contact-block keys carry it. Both are optional, like everything else here.
   ten agents is a swarm price, and reading it per-agent would overstate the cost
   tenfold.
 
-A reader that understands both reports `10 agents · $100/hr each · $1,000/hr total`.
+With the per-agent price in the example, a reader reports
+`10 agents · $100/hr each · $1,000/hr total`. If the resume states only a whole-swarm
+price, the divided figure is labelled as an average: `10 agents · $100/hr average ·
+$1,000/hr total`.
 
 Degradation is the same as everywhere else in this format. No `Agents` key means the
 capacity is unstated, which readers should say rather than assume: rendering nothing
