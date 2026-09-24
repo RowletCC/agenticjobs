@@ -219,6 +219,18 @@ test('accounts include links from every Links section', () => {
   ]);
 });
 
+test('Links accounts written with plus bullets are exported', () => {
+  const md = openProfileFromResume(
+    source(`# Ada Lovelace
+
+## Links
+
++ [Mastodon](https://mathstodon.xyz/@ada)
+`),
+  );
+  assert.ok(md.includes('- [Mastodon](https://mathstodon.xyz/@ada)'), md);
+});
+
 test('query and fragment suffix slashes remain part of account identity', () => {
   const md = openProfileFromResume(
     source(`# Ada Lovelace
