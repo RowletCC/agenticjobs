@@ -145,7 +145,8 @@ export async function ensurePublicSlug(pool: pg.Pool, resume: Resume): Promise<s
   // this ran against a resume whose line breaks had been flattened.
   const base = publicSlugBase(nameOf(resume));
   for (let attempt = 0; attempt < 25; attempt += 1) {
-    const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`;
+    const ending = attempt === 0 ? '' : `-${attempt + 1}`;
+    const candidate = `${base.slice(0, SLUG_MAX - ending.length).replace(/-+$/, '')}${ending}`;
     const claimed = await pool.query(
       `update resumes set public_slug = $2 where id = $1 and public_slug is null
          and not exists (select 1 from resumes where public_slug = $2)
