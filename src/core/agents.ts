@@ -292,40 +292,48 @@ export async function registerAgent(
       'skills',
     );
   }
-  const count = await pool.query<{ n: number }>(
-    `select count(*)::int as n from agents where owner_id = $1`,
-    [ownerId],
-  );
-  if ((count.rows[0]?.n ?? 0) >= AGENTS_PER_ACCOUNT) {
-    throw new AgentProblem(`An account can register up to ${AGENTS_PER_ACCOUNT} agents.`, 409);
-  }
-  const operatorId = (await operatorIdOf(pool, ownerId, input, null)) ?? null;
+  const description = clean(input.description, DESCRIPTION_MAX, { multiline: true });
+  const url = normaliseUrl(input.url);
+  const isPublic = input.public === undefined ? true : flag(input.public);
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    // Serialize registrations for this account before checking its cap. A
+    // count followed by an insert otherwise lets concurrent requests both
+    // observe the final available slot.
+    await client.query('select id from users where id = $1 for update', [ownerId]);
+    const count = await client.query<{ n: number }>(
+      `select count(*)::int as n from agents where owner_id = $1`,
+      [ownerId],
+    );
+    if ((count.rows[0]?.n ?? 0) >= AGENTS_PER_ACCOUNT) {
+      throw new AgentProblem(`An account can register up to ${AGENTS_PER_ACCOUNT} agents.`, 409);
+    }
+    const operatorId = (await operatorIdOf(client, ownerId, input, null)) ?? null;
 
-  const base = slugify(name);
-  let slug = base;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const taken = await pool.query(`select 1 from agents where slug = $1`, [slug]);
-    if (taken.rows.length === 0) break;
-    slug = `${base}-${suffix(4)}`;
-  }
+    const base = slugify(name);
+    let slug = base;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const taken = await client.query(`select 1 from agents where slug = $1`, [slug]);
+      if (taken.rows.length === 0) break;
+      slug = `${base}-${suffix(4)}`;
+    }
 
-  const inserted = await pool.query<{ slug: string }>(
-    `insert into agents (owner_id, slug, name, skills, description, url, operator_id, public)
-     values ($1, $2, $3, $4, $5, $6, $7, $8) returning slug`,
-    [
-      ownerId,
-      slug,
-      name,
-      skills,
-      clean(input.description, DESCRIPTION_MAX, { multiline: true }),
-      normaliseUrl(input.url),
-      operatorId,
-      input.public === undefined ? true : flag(input.public),
-    ],
-  );
-  const created = await getAgent(pool, inserted.rows[0]?.slug ?? slug, ownerId);
-  if (created === null) throw new Error('agent insert returned no row');
-  return created;
+    const inserted = await client.query<{ slug: string }>(
+      `insert into agents (owner_id, slug, name, skills, description, url, operator_id, public)
+       values ($1, $2, $3, $4, $5, $6, $7, $8) returning slug`,
+      [ownerId, slug, name, skills, description, url, operatorId, isPublic],
+    );
+    const created = await getAgent(client, inserted.rows[0]?.slug ?? slug, ownerId);
+    if (created === null) throw new Error('agent insert returned no row');
+    await client.query('commit');
+    return created;
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 function flag(value: unknown): boolean {
