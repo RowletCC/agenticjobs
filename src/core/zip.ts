@@ -36,7 +36,24 @@ function findEndOfCentralDirectory(buffer: Buffer): number {
   // The comment field means the record is not necessarily at the very end.
   const earliest = Math.max(0, buffer.length - 0xffff - 22);
   for (let offset = buffer.length - 22; offset >= earliest; offset -= 1) {
-    if (buffer.readUInt32LE(offset) === EOCD_SIGNATURE) return offset;
+    if (buffer.readUInt32LE(offset) !== EOCD_SIGNATURE) continue;
+    if (offset + 22 + buffer.readUInt16LE(offset + 20) !== buffer.length) continue;
+
+    // A matching signature inside the comment can itself look like a complete
+    // empty EOCD. Check that its directory fields point to the real directory.
+    const diskEntries = buffer.readUInt16LE(offset + 8);
+    const entries = buffer.readUInt16LE(offset + 10);
+    const directorySize = buffer.readUInt32LE(offset + 12);
+    const directoryOffset = buffer.readUInt32LE(offset + 16);
+    if (diskEntries !== entries || directoryOffset + directorySize > offset) continue;
+    if (entries === 0) {
+      if (directorySize === 0 && directoryOffset === offset) return offset;
+    } else if (
+      directoryOffset + 4 <= offset &&
+      buffer.readUInt32LE(directoryOffset) === CENTRAL_SIGNATURE
+    ) {
+      return offset;
+    }
   }
   throw new ZipProblem('This does not look like a .docx (no ZIP directory found).');
 }
