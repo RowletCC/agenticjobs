@@ -29,6 +29,8 @@ import {
   type Viewer,
 } from '../../core/auth.ts';
 import {
+  applicationPage,
+  countApplications,
   createApplication,
   decideApplication,
   listApplications,
@@ -627,7 +629,10 @@ export function apiRoutes(): Hono<AppEnv> {
       return fail(c, 403, 'not_a_member', `You are not a member of ${job.org.name}.`);
     }
 
-    const applications = await listApplications(pool, job.id);
+    const { limit, offset: requestedOffset } = applicationPage(new URL(c.req.url).searchParams);
+    const total = await countApplications(pool, job.id);
+    const offset = Math.min(requestedOffset, Math.max(0, total - 1));
+    const applications = await listApplications(pool, job.id, limit, offset);
     const withResumes = await Promise.all(
       applications.map(async (application) => {
         const row = await pool.query<{
@@ -643,7 +648,7 @@ export function apiRoutes(): Hono<AppEnv> {
         };
       }),
     );
-    return c.json({ job: job.slug, items: withResumes, total: withResumes.length });
+    return c.json({ job: job.slug, items: withResumes, total, limit, offset });
   });
 
   /**

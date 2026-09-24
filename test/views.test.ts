@@ -366,7 +366,14 @@ test('an employer can act on an application from the page they read it on', asyn
   };
 
   const html = String(
-    ManageJobPage({ job, html: '', applications: [application], publicUrl: 'http://b.test' }),
+    ManageJobPage({
+      job,
+      html: '',
+      applications: [application],
+      applicationTotal: 101,
+      applicationLimit: 100,
+      publicUrl: 'http://b.test',
+    }),
   );
 
   // A POST, not a link: a GET that hires someone can be prefetched.
@@ -378,6 +385,8 @@ test('an employer can act on an application from the page they read it on', asyn
   assert.match(html, /value="hired"/, 'hire must be offered');
   assert.ok(!html.includes('value="reviewing"'), 'the status it is already in is not a button');
   assert.ok(!html.includes('value="new"'), 'the candidate-side statuses are never offered');
+  assert.match(html, /Showing 1–1 of 101/);
+  assert.match(html, /href="\/me\/jobs\/a-job\?offset=100">Older applications<\/a>/);
 });
 
 test('the post form can say a role is unpaid', () => {
