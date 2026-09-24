@@ -86,6 +86,18 @@ export interface RecommendFormProps {
   error?: string;
 }
 
+function selectedSignature(
+  existing: Recommendation | null,
+  values: Record<string, string>,
+  asOptions: { slug: string; name: string }[],
+): string {
+  if (values['as'] !== undefined) return values['as'];
+  const employerSlug = existing?.author.kind === 'employer' ? existing.author.slug : null;
+  return employerSlug !== null && asOptions.some((option) => option.slug === employerSlug)
+    ? employerSlug
+    : '';
+}
+
 export const RecommendForm: FC<RecommendFormProps> = ({
   action,
   asOptions,
@@ -128,12 +140,15 @@ export const RecommendForm: FC<RecommendFormProps> = ({
             >
               <select class="select" id="as" name="as">
                 {canWriteAsSelf && (
-                  <option value="" selected={(values['as'] ?? '') === ''}>
+                  <option value="" selected={selectedSignature(existing, values, asOptions) === ''}>
                     Yourself
                   </option>
                 )}
                 {asOptions.map((option) => (
-                  <option value={option.slug} selected={values['as'] === option.slug}>
+                  <option
+                    value={option.slug}
+                    selected={selectedSignature(existing, values, asOptions) === option.slug}
+                  >
                     {option.name}
                   </option>
                 ))}
