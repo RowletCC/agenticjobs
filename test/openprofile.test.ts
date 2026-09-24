@@ -182,6 +182,29 @@ test('Links accounts with case-sensitive query values remain distinct', () => {
   ]);
 });
 
+test('accounts include links from every Links section', () => {
+  const md = openProfileFromResume(
+    source(`# Ada Lovelace
+
+## Links
+
+- [Code](https://github.com/ada)
+
+## Projects
+
+- Analytical engine
+
+## Links
+
+- [Writing](https://ada.example/blog)
+`),
+  );
+  assert.deepEqual(md.split('\n').filter((line) => line.startsWith('- [')), [
+    '- [Code](https://github.com/ada)',
+    '- [Writing](https://ada.example/blog)',
+  ]);
+});
+
 test('query and fragment suffix slashes remain part of account identity', () => {
   const md = openProfileFromResume(
     source(`# Ada Lovelace

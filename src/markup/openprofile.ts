@@ -132,8 +132,7 @@ function accountLines(parsed: OpenResume): string[] {
     add(item.key, item.href);
   }
 
-  const links = parsed.sections.find((section) => section.kind === 'links');
-  if (links !== undefined) {
+  for (const links of parsed.sections.filter((section) => section.kind === 'links')) {
     for (const line of links.markdown.split('\n')) {
       const bullet = line.replace(/^\s*[-*]\s+/, '').trim();
       const md = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/i.exec(bullet);
