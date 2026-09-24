@@ -253,7 +253,9 @@ async function operatorIdOf(
   // No cycles: walking up from the proposed operator must never reach this
   // agent, or "who runs this" has no answer.
   let cursor: string | null = row.id;
-  for (let depth = 0; cursor !== null && depth < 50; depth += 1) {
+  // An account can have up to 100 agents, so a valid chain can be deeper than
+  // 50. Walk the whole possible chain before accepting the new edge.
+  for (let depth = 0; cursor !== null && depth < AGENTS_PER_ACCOUNT; depth += 1) {
     if (cursor === selfId) {
       throw new AgentProblem(
         `That would make ${slug} operate an agent that already operates it.`,
@@ -266,6 +268,9 @@ async function operatorIdOf(
       [cursor],
     );
     cursor = up.rows[0]?.operator_id ?? null;
+  }
+  if (cursor !== null) {
+    throw new AgentProblem('The operator chain is too deep or already cyclic.', 400, 'operator');
   }
   return row.id;
 }
