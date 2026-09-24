@@ -450,7 +450,11 @@ export function discoveryRoutes(): Hono<AppEnv> {
     // company matches "remote".
     const url = new URL(c.req.url);
     const query = parseQuery(url.searchParams);
-    const filtered = url.search !== '' && url.search !== '?';
+    // `limit`, `offset` and `sort` change a search page, not this site-wide
+    // subscription. Only a filter that changes the feed's items makes it a
+    // filtered feed that should omit employers and updates.
+    const narrowed = describeQuery(query);
+    const filtered = narrowed !== null;
     // Tags are the only filter that means the same thing on both halves of the
     // board. Workplace, employment type, seniority, agent policy, a salary
     // floor and an employer are questions about a job, and a person cannot
@@ -472,7 +476,7 @@ export function discoveryRoutes(): Hono<AppEnv> {
     ]);
 
     return rss(c, {
-      title: filtered ? `${config.boardName}: ${url.search.slice(1)}` : config.boardName,
+      title: filtered ? `${config.boardName}: ${narrowed}` : config.boardName,
       link: config.publicUrl + url.search,
       description: config.boardTagline,
       self: `${config.publicUrl}/feed.rss${url.search}`,
