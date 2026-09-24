@@ -1068,7 +1068,12 @@ export async function callTool(
       if (response.status === 401) return toolError(signInFirst(caller));
       if (response.status !== 200)
         return toolError(message(response.body, 'Could not read notifications.'));
-      if (args['markRead'] === true) await caller.call('POST', '/api/v1/notifications/read', {});
+      if (args['markRead'] === true) {
+        const marked = await caller.call('POST', '/api/v1/notifications/read', {});
+        if (marked.status !== 200) {
+          return toolError(message(marked.body, 'Could not mark notifications read.'));
+        }
+      }
       const page = response.body as { items?: unknown[] };
       if ((page.items ?? []).length === 0) return text('No notifications.', response.body);
       return text(JSON.stringify(response.body, null, 2), response.body);
