@@ -134,7 +134,7 @@ function accountLines(parsed: OpenResume): string[] {
 
   for (const links of parsed.sections.filter((section) => section.kind === 'links')) {
     for (const line of links.markdown.split('\n')) {
-      const bullet = line.replace(/^\s*[-*]\s+/, '').trim();
+      const bullet = line.replace(/^\s*[-*+]\s+/, '').trim();
       const md = parseMarkdownLink(bullet);
       if (md !== null && isHttp(md.href)) {
         add(md.label.trim(), md.href);
