@@ -35,6 +35,18 @@ test('html becomes Markdown with headings, lists and links, and without nav, foo
   assert.ok(!markdown.includes('alert'));
 });
 
+test('resume content inside a semantic article header is retained', () => {
+  const html = `<html><body><nav>Site navigation</nav><article>
+    <header><h1>Ada Lovelace</h1><p>Mathematician and analyst with several years of experience.</p></header>
+    <section><h2>Experience</h2><p>Built analytical systems for a decade.</p></section>
+  </article><footer>Site footer</footer></body></html>`;
+  const markdown = htmlToMarkdown(html);
+  assert.ok(markdown.includes('# Ada Lovelace'), markdown);
+  assert.ok(markdown.includes('Mathematician and analyst'), markdown);
+  assert.ok(!markdown.includes('Site navigation'), markdown);
+  assert.ok(!markdown.includes('Site footer'), markdown);
+});
+
 test('private and non-http addresses are refused before any fetch', async () => {
   assert.equal(isPrivateAddress('10.1.2.3'), true);
   assert.equal(isPrivateAddress('192.168.0.9'), true);
