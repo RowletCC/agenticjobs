@@ -86,7 +86,8 @@ export function isPrivateAddress(address: string): boolean {
   // (fe80 through febf, so a prefix test on "fe80:" misses fe90::1),
   // fec0::/10 is site-local and fc00::/7 is unique-local.
   const hextet = Number.parseInt(lower.split(':', 1)[0] ?? '', 16);
-  if ((hextet & 0xffc0) === 0xfe80 || (hextet & 0xffc0) === 0xfec0 || (hextet & 0xfe00) === 0xfc00) return true;
+  if ((hextet & 0xffc0) === 0xfe80 || (hextet & 0xffc0) === 0xfec0 || (hextet & 0xfe00) === 0xfc00)
+    return true;
   if (lower.startsWith('2001:db8:')) return true;
   // An IPv4 address hidden in an IPv6 one, by whichever prefix carries it:
   // ::ffff: mapped, the deprecated :: compatible form, the NAT64 well-known
@@ -115,8 +116,7 @@ function embeddedIpv4(lower: string): string | 'reserved' | null {
   const halves = lower.split('::');
   if (halves.length > 2) return null;
   const left = halves[0] === '' ? [] : (halves[0] ?? '').split(':');
-  const right =
-    halves.length === 2 ? (halves[1] === '' ? [] : (halves[1] ?? '').split(':')) : [];
+  const right = halves.length === 2 ? (halves[1] === '' ? [] : (halves[1] ?? '').split(':')) : [];
   if (halves.length === 1 && left.length !== 8) return null;
   const pad = 8 - left.length - right.length;
   if (halves.length === 2 && pad < 1) return null;
@@ -351,7 +351,13 @@ function inline(fragment: string): string {
         /<a\s[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
         (_, href: string, text: string) => {
           const label = text.replace(/<[^>]+>/g, '').trim();
-          return label && /^https?:\/\//i.test(href) ? `[${label}](${href})` : label;
+          // A resume often says only "Email" in the visible anchor. Dropping
+          // its mailto target loses the address before the candidate can edit
+          // the imported draft or publish a contact channel.
+          return label &&
+            (/^https?:\/\//i.test(href) || /^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(href))
+            ? `[${label}](${href})`
+            : label;
         },
       )
       .replace(/<(strong|b)>([\s\S]*?)<\/\1>/gi, '**$2**')
