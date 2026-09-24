@@ -31,16 +31,21 @@ export function parseJobDocument(source: string): JobDocument {
 
   const front = parseFrontMatter(match[1] ?? '');
   const body = text.slice(match[0].length).trim();
-  const title = front['title'] ?? /^#\s+(.+)$/m.exec(body)?.[1]?.trim();
+  const heading = /^#\s+(.+)$/m.exec(body);
+  const title = front['title'] ?? heading?.[1]?.trim();
+  let description = body;
+  if (front['title'] === undefined && heading !== null) {
+    const before = body.slice(0, heading.index).replace(/(?:\n[ \t]*)+$/, '');
+    const after = body.slice(heading.index + heading[0].length).replace(/^\n(?:[ \t]*\n)*/, '');
+    description = [before, after].filter((part) => part !== '').join('\n\n');
+  }
 
   return {
     ...front,
     ...(title === undefined ? {} : { title }),
     // The h1 is dropped from the body when it became the title, so the page
     // does not show the same line twice.
-    description: title !== undefined && front['title'] === undefined
-      ? body.replace(/^#\s+.+\n?/, '').trim()
-      : body,
+    description,
   };
 }
 

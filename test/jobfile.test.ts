@@ -61,6 +61,19 @@ test('a UTF-8 BOM does not hide the title of a plain Markdown job', () => {
   });
 });
 
+test('a title derived after introductory prose is not repeated in the description', () => {
+  const parsed = parseJobDocument(`---
+org: example-works
+---
+Intro paragraph
+
+# Engineer
+
+Role details`);
+  assert.equal(parsed.title, 'Engineer');
+  assert.equal(parsed.description, 'Intro paragraph\n\nRole details');
+});
+
 test('CLI post and edit preserve job metadata with or without a UTF-8 BOM', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'agenticjobs-jobfile-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
