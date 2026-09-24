@@ -360,18 +360,11 @@ export function pageRoutes(): Hono<AppEnv> {
       resolved = saved?.markdown ?? null;
     }
 
-    const application = await createApplication(pool, job.id, validated.value);
-    if (resolved !== null || viewer !== null) {
-      await pool.query(
-        `update applications set resume_markdown = $2, resume_title = $3, user_id = $4 where id = $1`,
-        [
-          application.id,
-          resolved,
-          resolved === null ? null : (parseResume(resolved).name ?? 'Resume'),
-          viewer?.id ?? null,
-        ],
-      );
-    }
+    const application = await createApplication(pool, job.id, validated.value, {
+      userId: viewer?.id ?? null,
+      resumeMarkdown: resolved,
+      resumeTitle: resolved === null ? null : (parseResume(resolved).name ?? 'Resume'),
+    });
 
     return c.html(
       <Layout {...shell(c)} title={`Applied: ${job.title}`} noindex>

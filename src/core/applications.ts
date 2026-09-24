@@ -163,12 +163,19 @@ export async function createApplication(
   pool: pg.Pool,
   jobId: string,
   value: ValidatedApplication,
-  options: { submit?: boolean } = {},
+  options: {
+    submit?: boolean;
+    userId?: string | null;
+    resumeMarkdown?: string | null;
+    resumeTitle?: string | null;
+  } = {},
 ): Promise<Application> {
   const submit = options.submit !== false;
   const result = await pool.query<ApplicationRow>(
-    `insert into applications (job_id, answers, agent, status, submitted_at)
-     values ($1, $2::jsonb, $3::jsonb, $4, case when $5 then now() else null end)
+    `insert into applications (
+       job_id, answers, agent, status, submitted_at, user_id, resume_markdown, resume_title
+     )
+     values ($1, $2::jsonb, $3::jsonb, $4, case when $5 then now() else null end, $6, $7, $8)
      returning id, job_id, answers, agent, status, created_at, submitted_at`,
     [
       jobId,
@@ -176,6 +183,9 @@ export async function createApplication(
       value.agent === null ? null : JSON.stringify(value.agent),
       submit ? 'new' : 'draft',
       submit,
+      options.userId ?? null,
+      options.resumeMarkdown ?? null,
+      options.resumeTitle ?? null,
     ],
   );
   const row = result.rows[0];
