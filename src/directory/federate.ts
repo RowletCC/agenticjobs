@@ -146,8 +146,13 @@ export async function federatedSearch(
             ...(options.allowPrivate === undefined ? {} : { allowPrivate: options.allowPrivate }),
           });
           if (Date.now() - started >= budgetMs) throw new FetchProblem(`${target.url} timed out`);
-          const page = payload as { items?: unknown; total?: unknown };
-          const items = Array.isArray(page.items) ? page.items : [];
+          const page = payload as { items?: unknown; total?: unknown } | null;
+          // A missing or malformed items field is a failed response, not an
+          // empty page. Otherwise the source appears healthy while its jobs
+          // disappear from the merged search results.
+          if (!Array.isArray(page?.items))
+            throw new FetchProblem(`${target.url} returned an invalid search page`);
+          const items = page.items;
           const rawForWindow = items.slice(0, perInstance - rawFetched);
           for (const item of rawForWindow) {
             const job = item as Job;
