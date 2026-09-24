@@ -178,8 +178,7 @@ function workplaceOf(node: Record<string, unknown>): Workplace | undefined {
   return undefined;
 }
 
-function locationOf(node: Record<string, unknown>): string | undefined {
-  const place = Array.isArray(node['jobLocation']) ? node['jobLocation'][0] : node['jobLocation'];
+function locationAt(place: unknown): string | undefined {
   if (typeof place !== 'object' || place === null) return undefined;
   const address = (place as Record<string, unknown>)['address'];
   if (typeof address === 'string') return address;
@@ -194,6 +193,15 @@ function locationOf(node: Record<string, unknown>): string | undefined {
     })
     .filter((part): part is string => typeof part === 'string' && part.trim() !== '');
   return parts.length === 0 ? undefined : parts.join(', ');
+}
+
+function locationOf(node: Record<string, unknown>): string | undefined {
+  const raw = node['jobLocation'];
+  const places = Array.isArray(raw) ? raw : [raw];
+  const locations = [
+    ...new Set(places.map(locationAt).filter((value): value is string => value !== undefined)),
+  ];
+  return locations.length === 0 ? undefined : locations.join('; ');
 }
 
 /**
