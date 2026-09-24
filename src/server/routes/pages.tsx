@@ -330,8 +330,9 @@ export function pageRoutes(): Hono<AppEnv> {
     }
 
     const validated = validateApplication(job.apply.schema, input, job.agentPolicy);
-    const render = (problems: { field: string; message: string }[]): Html =>
-      c.html(
+    const render = async (problems: { field: string; message: string }[]): Promise<Response> => {
+      const resumes = viewer === null ? [] : await listResumes(pool, viewer.id);
+      return c.html(
         <Layout {...shell(c)} title={`Apply: ${job.title}`} noindex>
           <JobDetail
             job={job}
@@ -340,10 +341,12 @@ export function pageRoutes(): Hono<AppEnv> {
             problems={problems}
             values={form}
             signedIn={viewer !== null}
+            resumes={resumes.map((resume) => ({ slug: resume.slug, title: resume.title }))}
           />
         </Layout>,
         400,
       );
+    };
 
     if (!validated.ok) return render(validated.problems);
 

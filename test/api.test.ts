@@ -297,6 +297,43 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       }
     });
 
+    test('a saved resume remains selectable after an HTML validation error', async () => {
+      if (pool === null || app === null) return;
+      const { createSession, ensureUser } = await import('../dist/core/auth.js');
+      const { createResume } = await import('../dist/core/resumes.js');
+      const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+      const user = await ensureUser(
+        pool as never,
+        `apply-resume+${stamp}@example.com`,
+        'Candidate',
+      );
+      const token = await createSession(pool as never, user.id, { label: 'web' });
+      const resume = await createResume(pool as never, user.id, {
+        markdown: '# Saved Candidate\n\n- **Email**: saved@example.com\n',
+        title: 'Saved Candidate Resume',
+      });
+
+      const response = await app.fetch(
+        new Request(`http://board.test/jobs/${slug}/apply`, {
+          method: 'POST',
+          headers: {
+            cookie: `aj_session=${token}`,
+            'content-type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({ resumeSlug: resume.slug }).toString(),
+        }),
+      );
+      assert.equal(response.status, 400);
+      const html = await response.text();
+      assert.match(html, /name="resumeSlug"/);
+      assert.match(
+        html,
+        new RegExp(
+          `<option[^>]*value="${resume.slug}"[^>]*selected[^>]*>Saved Candidate Resume</option>`,
+        ),
+      );
+    });
+
     test('a human-only listing refuses a disclosed agent, in words', async () => {
       const page = (await (await get('/api/v1/jobs?agentPolicy=human-only&limit=1')).json()) as {
         items: { slug: string }[];

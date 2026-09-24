@@ -724,7 +724,9 @@ const ApplyForm: FC<{
           <select class="select" name="resumeSlug" style="margin-bottom:.5rem">
             <option value="">Paste one below instead</option>
             {resumes.map((resume) => (
-              <option value={resume.slug}>{resume.title}</option>
+              <option value={resume.slug} selected={values['resumeSlug'] === resume.slug}>
+                {resume.title}
+              </option>
             ))}
           </select>
         )}
