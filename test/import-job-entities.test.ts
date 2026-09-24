@@ -42,3 +42,8 @@ test('valid Unicode boundaries, astral characters and escaped examples are prese
   );
   assert.equal(job.description, '\uD7FF \uE000 \u{10FFFF} 🚀 &#x110000;');
 });
+
+test('plain-text JSON-LD descriptions preserve comparison operators', () => {
+  const job = extractJob(structured('Compare x < y and y > z before sorting.'), sourceUrl);
+  assert.equal(job.description, 'Compare x < y and y > z before sorting.');
+});
