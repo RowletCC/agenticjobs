@@ -2571,6 +2571,43 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.match(html, /noindex/);
     });
 
+    test('editing an imported resume stops serving its original file as the download', async () => {
+      if (pool === null) return;
+      const { ensureUser } = await import('../dist/core/auth.js');
+      const { createResume, updateResume, ensurePublicSlug, publicResumeSource } =
+        await import('../dist/core/resumes.js');
+      const user = await ensureUser(pool as never, `resume-source+${Date.now()}@example.com`);
+      const original = Buffer.from('%PDF-1.7 original resume');
+      const created = await createResume(pool as never, user.id, {
+        markdown: '# Ada Lovelace\n\nOriginal engineer resume.\n',
+        title: 'Ada Lovelace',
+        source: { name: 'ada.pdf', mime: 'application/pdf', bytes: original },
+      });
+
+      const published = await updateResume(pool as never, user.id, created.slug, {
+        markdown: created.markdown,
+        visibility: 'public',
+      });
+      assert.ok(published);
+      const publicSlug = await ensurePublicSlug(pool as never, published);
+      assert.ok(publicSlug);
+      const unchangedSource = await publicResumeSource(pool as never, publicSlug ?? '');
+      assert.deepEqual(
+        unchangedSource?.bytes,
+        original,
+        'an unedited import can keep its original download',
+      );
+
+      await updateResume(pool as never, user.id, created.slug, {
+        markdown: '# Ada Lovelace\n\nUpdated principal engineer resume.\n',
+      });
+      assert.equal(
+        await publicResumeSource(pool as never, publicSlug ?? ''),
+        null,
+        'the edited Markdown must be the source for subsequent PDF downloads',
+      );
+    });
+
     test('contact channels are for signed-in callers, in every representation', async () => {
       if (pool === null) return;
       const { createSession, ensureUser } = await import('../dist/core/auth.js');
