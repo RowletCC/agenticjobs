@@ -67,6 +67,19 @@ test('the form knows whether the writer has a page to sign with', () => {
   assert.match(rewrite, /Shipped the whole thing/, 'the earlier words are in the box');
 });
 
+test('rewriting an employer recommendation keeps the employer selected as its signature', () => {
+  const html = render(
+    RecommendForm({
+      action: '/candidates/ada/recommend',
+      asOptions: [{ slug: 'acme', name: 'Acme' }],
+      canWriteAsSelf: true,
+      existing: ITEM,
+    }),
+  );
+  assert.match(html, /<option[^>]*value="acme"[^>]*selected/, html);
+  assert.doesNotMatch(html, /<option[^>]*value=""[^>]*selected/, html);
+});
+
 test('the /me section puts the decision buttons on what is waiting', () => {
   const pending = { ...ITEM, id: 'b1b2c3d4-0000-4000-8000-000000000000', status: 'pending' as const, decidedAt: null };
   const html = render(RecommendationsSection({ received: [pending, ITEM], given: [] }));
