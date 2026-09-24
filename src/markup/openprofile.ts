@@ -169,7 +169,20 @@ function operatorLines(contact: ResumeContact[]): string[] {
     return [`- **Name**: ${(withEmail[1] ?? '').trim()}`, `- **Email**: ${withEmail[2] ?? ''}`];
   }
   if (item.href !== null && item.href.startsWith('mailto:')) {
-    return [`- **Email**: ${item.value}`];
+    const recipient = item.href.slice('mailto:'.length).split('?')[0] ?? '';
+    let email = recipient;
+    try {
+      email = decodeURIComponent(recipient);
+    } catch {
+      // Keep the raw URI path below; it will not be mistaken for the label.
+    }
+    if (/^[^\s@()<>]+@[^\s@()<>]+\.[^\s@()<>]+$/.test(email)) {
+      if (/^[^\s@()<>]+@[^\s@()<>]+\.[^\s@()<>]+$/.test(item.value)) {
+        return [`- **Email**: ${email}`];
+      }
+      return [`- **Name**: ${item.value}`, `- **Email**: ${email}`];
+    }
+    return [`- **Name**: ${item.value}`];
   }
   return [`- **Name**: ${item.value}`];
 }
