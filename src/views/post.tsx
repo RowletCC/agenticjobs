@@ -265,10 +265,22 @@ export const ManageJobPage: FC<{
   job: Job;
   html: string;
   applications: (Application & { resume: string | null; resumeTitle: string | null })[];
+  applicationTotal?: number;
+  applicationOffset?: number;
+  applicationLimit?: number;
   publicUrl: string;
   /** Why the last publish or pay change was refused, shown where it happened. */
   error?: string;
-}> = ({ job, html, applications, publicUrl, error }) => {
+}> = ({
+  job,
+  html,
+  applications,
+  applicationTotal = applications.length,
+  applicationOffset = 0,
+  applicationLimit = 100,
+  publicUrl,
+  error,
+}) => {
   const pay = payOfJob(job);
   return (
     <div class="stack">
@@ -355,8 +367,15 @@ export const ManageJobPage: FC<{
 
       <section class="stack">
         <h2>
-          {applications.length} {applications.length === 1 ? 'application' : 'applications'}
+          {applicationTotal} {applicationTotal === 1 ? 'application' : 'applications'}
         </h2>
+        {applicationTotal > 0 && (
+          <p class="small muted">
+            Showing {applicationOffset + 1}
+            {'–'}
+            {applicationOffset + applications.length} of {applicationTotal}
+          </p>
+        )}
         {applications.length === 0 ? (
           <Empty>Nobody yet.</Empty>
         ) : (
@@ -425,6 +444,30 @@ export const ManageJobPage: FC<{
               </div>
             </Card>
           ))
+        )}
+        {applicationTotal > applicationLimit && (
+          <nav class="row" aria-label="Application pages">
+            {applicationOffset > 0 && (
+              <a
+                class="btn btn-secondary btn-sm"
+                href={
+                  applicationOffset <= applicationLimit
+                    ? `/me/jobs/${job.slug}`
+                    : `/me/jobs/${job.slug}?offset=${applicationOffset - applicationLimit}`
+                }
+              >
+                Newer applications
+              </a>
+            )}
+            {applicationOffset + applications.length < applicationTotal && (
+              <a
+                class="btn btn-secondary btn-sm"
+                href={`/me/jobs/${job.slug}?offset=${applicationOffset + applicationLimit}`}
+              >
+                Older applications
+              </a>
+            )}
+          </nav>
         )}
       </section>
 

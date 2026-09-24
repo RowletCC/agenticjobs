@@ -24,6 +24,8 @@ import {
   type Viewer,
 } from '../../core/auth.ts';
 import {
+  applicationPage,
+  countApplications,
   createApplication,
   decideApplication,
   listApplications,
@@ -1400,7 +1402,10 @@ export function pageRoutes(): Hono<AppEnv> {
     if (job === null) return c.notFound();
     if (!(await isMember(pool, viewer.id, job.org.id))) return c.notFound();
 
-    const applications = await listApplications(pool, job.id);
+    const { limit, offset: requestedOffset } = applicationPage(new URL(c.req.url).searchParams);
+    const applicationTotal = await countApplications(pool, job.id);
+    const offset = Math.min(requestedOffset, Math.max(0, applicationTotal - 1));
+    const applications = await listApplications(pool, job.id, limit, offset);
     const detailed = await Promise.all(
       applications.map(async (application) => {
         const row = await pool.query<{
@@ -1427,6 +1432,9 @@ export function pageRoutes(): Hono<AppEnv> {
           job={job}
           html={renderMarkdown(job.description, { headingOffset: 2 })}
           applications={detailed}
+          applicationTotal={applicationTotal}
+          applicationOffset={offset}
+          applicationLimit={limit}
           publicUrl={config.publicUrl}
           {...(error === undefined ? {} : { error })}
         />

@@ -21,6 +21,23 @@ import {
 import { clean } from '../schema/text.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const APPLICATIONS_PAGE_SIZE = 100;
+const MAX_APPLICATION_OFFSET = 100_000;
+
+export function applicationPage(params: URLSearchParams): { limit: number; offset: number } {
+  const integer = (value: string | null, fallback: number, min: number, max: number): number => {
+    const normalized = value?.trim();
+    if (normalized === undefined || !/^[+-]?\d+$/.test(normalized)) return fallback;
+    const parsed = Number(normalized);
+    if (!Number.isSafeInteger(parsed)) return fallback;
+    return Math.min(max, Math.max(min, parsed));
+  };
+
+  return {
+    limit: integer(params.get('limit'), APPLICATIONS_PAGE_SIZE, 1, APPLICATIONS_PAGE_SIZE),
+    offset: integer(params.get('offset'), 0, 0, MAX_APPLICATION_OFFSET),
+  };
+}
 
 interface ApplicationRow {
   id: string;
@@ -83,7 +100,8 @@ export function validateApplication(
     const value = clean(raw, field.maxLength ?? 2000, { multiline: field.type === 'textarea' });
 
     if (value === '') {
-      if (field.required) problems.push({ field: field.name, message: `${field.label} is required.` });
+      if (field.required)
+        problems.push({ field: field.name, message: `${field.label} is required.` });
       continue;
     }
 
@@ -242,16 +260,27 @@ export async function listApplications(
   pool: pg.Pool,
   jobId: string,
   limit = 100,
+  offset = 0,
 ): Promise<Application[]> {
   const result = await pool.query<ApplicationRow & { decided_at: string | null }>(
     `select id, job_id, answers, agent, status, created_at, submitted_at, decided_at
        from applications
       where job_id = $1 and submitted_at is not null
-      order by created_at desc
-      limit $2`,
-    [jobId, Math.min(500, Math.max(1, limit))],
+      order by created_at desc, id desc
+      limit $2 offset $3`,
+    [jobId, Math.min(500, Math.max(1, limit)), Math.max(0, offset)],
   );
   return result.rows.map((row) => ({ ...toApplication(row), decidedAt: row.decided_at }));
+}
+
+export async function countApplications(pool: pg.Pool, jobId: string): Promise<number> {
+  const result = await pool.query<{ total: string | number }>(
+    `select count(*)::bigint as total
+       from applications
+      where job_id = $1 and submitted_at is not null`,
+    [jobId],
+  );
+  return Number(result.rows[0]?.total ?? 0);
 }
 
 /**

@@ -268,8 +268,22 @@ export function openApiDocument(config: Config): Record<string, unknown> {
           tags: ['apply'],
           summary: 'Applications to a job. Members of the employer only.',
           security: [{ bearer: [] }],
-          parameters: [pathParam('slug')],
-          responses: { 200: ok('The applications.'), 401: err(), 403: err() },
+          parameters: [
+            pathParam('slug'),
+            {
+              name: 'limit',
+              in: 'query',
+              schema: { type: 'integer', minimum: 1, maximum: 100, default: 100 },
+            },
+            { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0, default: 0 } },
+          ],
+          responses: {
+            200: ok(
+              'A page of applications, the total across all pages, and the page coordinates.',
+            ),
+            401: err(),
+            403: err(),
+          },
         },
       },
       '/api/v1/applications/{id}/decision': {

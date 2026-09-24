@@ -1070,6 +1070,39 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
       assert.ok(inbox.items[0]?.decidedAt, 'a decision records when it was made');
     });
 
+    test('the employer application inbox can page past its first 100 rows', async () => {
+      if (pool === null) return;
+      const { auth, slug } = await pipeline('Paged Inbox');
+      const job = (await import('../dist/core/jobs.js')).getJobBySlug;
+      const listing = await job(pool as never, slug, { includeUnpublished: true });
+      assert.ok(listing);
+      await pool.query(
+        `insert into applications (job_id, answers, status, submitted_at)
+         select $1, jsonb_build_object('name', 'Candidate ' || n), 'new', now()
+           from generate_series(1, 100) as n`,
+        [listing.id],
+      );
+
+      const first = (await (await get(`/api/v1/jobs/${slug}/applications`, auth)).json()) as {
+        items: { id: string }[];
+        total: number;
+        limit: number;
+        offset: number;
+      };
+      assert.equal(first.items.length, 100);
+      assert.equal(first.total, 101);
+      assert.equal(first.limit, 100);
+      assert.equal(first.offset, 0);
+
+      const second = (await (
+        await get(`/api/v1/jobs/${slug}/applications?offset=100`, auth)
+      ).json()) as { items: { id: string }[]; total: number; limit: number; offset: number };
+      assert.equal(second.items.length, 1);
+      assert.equal(second.total, 101);
+      assert.equal(second.offset, 100);
+      assert.notEqual(first.items[99]?.id, second.items[0]?.id);
+    });
+
     test("the candidate-side statuses are not an employer's to set", async () => {
       // `new` and `draft` belong to the applicant. An employer who could set
       // them could un-send an application or push it back to unread.
