@@ -77,7 +77,7 @@ function normaliseUrl(value: unknown): string | null {
   const raw = clean(value, 500);
   if (raw === '') return null;
   try {
-    const url = new URL(raw.includes('://') ? raw : `https://${raw}`);
+    const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
     return url.toString();
   } catch {

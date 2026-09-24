@@ -61,6 +61,11 @@ test('credentials in a link are stripped, because a link is for clicking', () =>
   assert.ok(link.startsWith('https://example.com/'), link);
 });
 
+test('a schemeless link can contain a URL in its query string', () => {
+  const link = 'example.com/blog?next=https://docs.example/guide';
+  assert.equal(normaliseLink(link), `https://${link}`);
+});
+
 test('an update is short enough to be news and long enough to say something', () => {
   assert.equal(BODY_MAX, 600);
   assert.ok(BODY_MIN > 0 && BODY_MIN < 40);
