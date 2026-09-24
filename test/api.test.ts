@@ -2872,6 +2872,44 @@ describe('the API', { skip: reason === '' ? false : `no database: ${reason}` }, 
   });
 
   describe('the directory', () => {
+    test('directory text search treats percent and underscore as ordinary characters', async () => {
+      if (pool === null) return;
+      const { listInstances } = await import('../dist/directory/registry.js');
+      const suffix = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+      const exactUrl = `https://literal-exact-${suffix}.example`;
+      const wildcardUrl = `https://literal-wildcard-${suffix}.example`;
+      const query = `Q%_literal-${suffix}`;
+      try {
+        await pool.query(
+          `insert into instances (url, descriptor, checked_at, failures)
+           values ($1, $2::jsonb, now(), 0), ($3, $4::jsonb, now(), 0)`,
+          [
+            exactUrl,
+            JSON.stringify({ name: query, tagline: '', topics: [], jobs: { open: 1 } }),
+            wildcardUrl,
+            JSON.stringify({
+              name: `QxxYliteral-${suffix}`,
+              tagline: '',
+              topics: [],
+              jobs: { open: 1 },
+            }),
+          ],
+        );
+
+        const matches = await listInstances(pool as never, { q: query });
+        assert.deepEqual(
+          matches
+            .filter((instance) => [exactUrl, wildcardUrl].includes(instance.url))
+            .map((i) => i.url),
+          [exactUrl],
+        );
+      } finally {
+        await pool.query(`delete from instances where url = any($1::text[])`, [
+          [exactUrl, wildcardUrl],
+        ]);
+      }
+    });
+
     test('a board refuses to list itself', async () => {
       // The flagship is both a board and the directory it names, so this is
       // the case that would otherwise put it in its own listing. Refused on
