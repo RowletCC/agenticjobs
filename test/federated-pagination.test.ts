@@ -401,6 +401,51 @@ test('discards a source that fails on page two but preserves another source', as
   assert.equal(requests.filter((url) => url.origin === 'https://broken.example').length, 2);
 });
 
+test('reports a malformed items page as a failed source without leaking earlier rows', async (t) => {
+  const requests = installFetch(t, {
+    'https://broken.example': (_url, requestNumber) =>
+      requestNumber === 1
+        ? { items: rows(0, 100), total: 150 }
+        : Response.json({ items: 'not an array', total: 150 }),
+    'https://healthy.example': () => ({ items: rows(1000, 1), total: 1 }),
+  });
+
+  const result = await federatedSearch(
+    targetsFromUrls(['https://broken.example', 'https://healthy.example']),
+    { ...EMPTY_QUERY, limit: 25, offset: 100 },
+    { allowPrivate: true },
+  );
+
+  assert.equal(requests.filter((url) => url.origin === 'https://broken.example').length, 2);
+  assert.equal(result.sources[0]?.ok, false);
+  assert.equal(result.sources[0]?.count, 0);
+  assert.match(result.sources[0]?.error ?? '', /invalid search page/i);
+  assert.equal(result.sources[1]?.ok, true);
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.jobs, []);
+});
+
+for (const [name, payload] of [
+  ['missing items', { total: 1 }],
+  ['null body', null],
+] as const) {
+  test(`reports a ${name} search page as a failed source`, async (t) => {
+    installFetch(t, { 'https://broken.example': () => Response.json(payload) });
+
+    const result = await federatedSearch(
+      targetsFromUrls(['https://broken.example']),
+      { ...EMPTY_QUERY, limit: 1, offset: 0 },
+      { allowPrivate: true },
+    );
+
+    assert.equal(result.sources[0]?.ok, false);
+    assert.equal(result.sources[0]?.count, 0);
+    assert.match(result.sources[0]?.error ?? '', /invalid search page/i);
+    assert.equal(result.total, 0);
+    assert.deepEqual(result.jobs, []);
+  });
+}
+
 test('shares one timeout budget across all pages of a source', async (t) => {
   let clock = 1000;
   t.mock.method(Date, 'now', () => clock);
