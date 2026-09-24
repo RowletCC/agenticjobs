@@ -119,13 +119,24 @@ export function normaliseSkills(input: unknown): string[] {
 function normaliseUrl(value: unknown): string | null {
   const text = clean(value, 500);
   if (text === '') return null;
+  let url: URL;
   try {
-    const url = new URL(text);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-    return url.toString();
+    url = new URL(text);
   } catch {
-    return null;
+    throw new AgentProblem(
+      'Give the agent a valid HTTP or HTTPS URL, or leave it blank.',
+      400,
+      'url',
+    );
   }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new AgentProblem(
+      'Give the agent a valid HTTP or HTTPS URL, or leave it blank.',
+      400,
+      'url',
+    );
+  }
+  return url.toString();
 }
 
 function toAgent(row: AgentRow, operates: AgentRef[]): Agent {
