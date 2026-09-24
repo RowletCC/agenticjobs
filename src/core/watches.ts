@@ -158,28 +158,41 @@ export async function createWatch(
     return 'Narrow the search first: a watch on every listing is the /feed, and it already exists.';
   }
   const stored = toStored(query);
-  const existing = await pool.query<WatchRow>(
-    `select id, query, label, email, created_at, last_notified_at
-       from watches where user_id = $1 and query = $2::jsonb`,
-    [userId, JSON.stringify(stored)],
-  );
-  const found = existing.rows[0];
-  if (found !== undefined) return { watch: toWatch(found, slugPath), created: false };
+  const findExisting = async (): Promise<Watch | null> => {
+    const existing = await pool.query<WatchRow>(
+      `select id, query, label, email, created_at, last_notified_at
+         from watches where user_id = $1 and query = $2::jsonb`,
+      [userId, JSON.stringify(stored)],
+    );
+    const row = existing.rows[0];
+    return row === undefined ? null : toWatch(row, slugPath);
+  };
+  const found = await findExisting();
+  if (found !== null) return { watch: found, created: false };
 
   const count = await pool.query<{ n: number }>(
     `select count(*)::int as n from watches where user_id = $1`,
     [userId],
   );
   if ((count.rows[0]?.n ?? 0) >= WATCHES_PER_ACCOUNT) {
+    // A concurrent request may have inserted this exact watch after the first
+    // lookup. Treat that request as the existing search even at the account cap.
+    const createdByPeer = await findExisting();
+    if (createdByPeer !== null) return { watch: createdByPeer, created: false };
     return `You are watching ${WATCHES_PER_ACCOUNT} searches already. Remove one to add another.`;
   }
   const inserted = await pool.query<WatchRow>(
     `insert into watches (user_id, query, label, email) values ($1, $2::jsonb, $3, $4)
+     on conflict (user_id, query) do nothing
      returning id, query, label, email, created_at, last_notified_at`,
     [userId, JSON.stringify(stored), labelFor(watchQuery(query)), options.email !== false],
   );
   const row = inserted.rows[0];
-  if (row === undefined) throw new Error('watch insert returned no row');
+  if (row === undefined) {
+    const createdByPeer = await findExisting();
+    if (createdByPeer !== null) return { watch: createdByPeer, created: false };
+    throw new Error('watch insert returned no row');
+  }
   return { watch: toWatch(row, slugPath), created: true };
 }
 
