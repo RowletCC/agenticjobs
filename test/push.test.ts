@@ -208,3 +208,24 @@ test('the VAPID contact is the mail sender, or the site when there is no address
     'https://agenticjobs.work',
   );
 });
+
+test('push requests keep the encrypted payload within the 4096-byte service limit', () => {
+  const keys = generateKeys();
+  const { subscription, privateJwk } = browserSubscription();
+  const payload = {
+    title: 'Rust engineer at Acme',
+    body: '新职位 '.repeat(2_000),
+    url: '/jobs/rust-engineer',
+  };
+  const { init } = buildRequest(keys, subscription, payload, 'mailto:jobs@example.test');
+  const body = Buffer.from(init.body as Uint8Array);
+  assert.ok(body.length <= 4096, `push body was ${body.length} bytes`);
+  const plaintext = decrypt(body, privateJwk, Buffer.from(subscription.keys.auth, 'base64url'));
+  const delivered = JSON.parse(plaintext.toString()) as typeof payload;
+  assert.equal(delivered.title, payload.title);
+  assert.equal(delivered.url, payload.url);
+  assert.ok(
+    delivered.body.length < payload.body.length,
+    'oversized notification text is shortened',
+  );
+});

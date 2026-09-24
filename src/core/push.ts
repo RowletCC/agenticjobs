@@ -46,6 +46,39 @@ export interface PushPayload {
   url: string;
 }
 
+// RFC 8291 notes that push services are not required to accept bodies over
+// 4096 bytes. The aes128gcm header is 86 bytes, and a one-record payload adds
+// a delimiter and a 16-byte authentication tag, leaving 3993 plaintext bytes.
+const MAX_PUSH_PLAINTEXT_BYTES = 3993;
+
+function pushPlaintext(payload: PushPayload): Buffer {
+  const fitted = { ...payload };
+  const serialized = (): Buffer => Buffer.from(JSON.stringify(fitted));
+  if (serialized().length <= MAX_PUSH_PLAINTEXT_BYTES) return serialized();
+
+  // Search text can be arbitrarily long. Keep the useful title and target
+  // intact whenever possible, shortening the descriptive body first.
+  for (const field of ['body', 'title', 'url'] as const) {
+    const characters = Array.from(fitted[field]);
+    let low = 0;
+    let high = characters.length;
+    let best = '';
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      fitted[field] = characters.slice(0, middle).join('');
+      if (serialized().length <= MAX_PUSH_PLAINTEXT_BYTES) {
+        best = fitted[field];
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    fitted[field] = best;
+    if (serialized().length <= MAX_PUSH_PLAINTEXT_BYTES) return serialized();
+  }
+  return serialized();
+}
+
 export interface PushResult {
   endpoint: string;
   status: number | null;
@@ -190,7 +223,7 @@ export function buildRequest(
   options: { ttl?: number } = {},
 ): { url: string; init: RequestInit } {
   const audience = new URL(subscription.endpoint).origin;
-  const body = encrypt(subscription, Buffer.from(JSON.stringify(payload)));
+  const body = encrypt(subscription, pushPlaintext(payload));
   return {
     url: subscription.endpoint,
     init: {
