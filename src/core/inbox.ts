@@ -408,7 +408,12 @@ export async function getThread(
     sender_id: string;
   }>(
     `select id, kind, body, invoice_id, created_at, sender_id
-       from messages where thread_id = $1 order by created_at asc limit 500`,
+       from (
+         select id, kind, body, invoice_id, created_at, sender_id
+           from messages where thread_id = $1
+          order by created_at desc, id desc limit 500
+       ) recent
+      order by created_at asc, id asc`,
     [threadId],
   );
 
