@@ -15,3 +15,15 @@ test('text-wrapped pay objects retain settlement methods just like string lines'
   if (typeof first !== 'string') assert.equal(first.method, 'USDC');
   assert.equal(typeof normalisePay({ pay: [{ text: 'not a pay line' }] }), 'string');
 });
+
+test('invalid supplied salary endpoints are rejected instead of silently dropped', () => {
+  for (const input of [
+    { pay: [{ type: 'hourly', min: 80, max: '100usd' }] },
+    { pay: [{ type: 'hourly', amount: 'not a number', min: 80 }] },
+    { salaryMin: 80_000, salaryMax: 'not a number' },
+  ]) {
+    const result = normalisePay(input);
+    assert.equal(typeof result, 'string', JSON.stringify(input));
+    assert.match(String(result), /amount.*non-negative number/i);
+  }
+});

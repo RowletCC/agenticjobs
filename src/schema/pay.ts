@@ -622,21 +622,35 @@ export function normaliseMethod(value: unknown): string | null {
   return text;
 }
 
+function payAmount(value: unknown): { value: number | null; error: string | null } {
+  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+    return { value: null, error: null };
+  }
+  const raw = typeof value === 'number' ? value : String(value).replace(/[,_$]/g, '');
+  if (typeof raw === 'string' && raw.trim() === '') {
+    return { value: null, error: 'A pay amount must be a non-negative number.' };
+  }
+  const amount = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(amount) || amount < 0) {
+    return { value: null, error: 'A pay amount must be a non-negative number.' };
+  }
+  return { value: amount, error: null };
+}
+
 function lineFromObject(value: Record<string, unknown>): PayLine | string {
   const type = value['type'];
   if (!isPayType(type)) {
     return `A pay line needs a type from ${PAY_TYPES.join(', ')}, or a "text" such as "$0.25 per task".`;
   }
-  const number = (raw: unknown): number | null => {
-    if (raw === null || raw === undefined || raw === '') return null;
-    const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[,_$]/g, ''));
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  };
   // `amount` is a single figure: ugig writes a fixed price as min = max, and
   // an object with only `min` is an open floor, printed "From".
-  const amount = number(value['amount']);
-  const min = amount ?? number(value['min']);
-  const max = amount ?? number(value['max']);
+  const amount = payAmount(value['amount']);
+  const suppliedMin = payAmount(value['min']);
+  const suppliedMax = payAmount(value['max']);
+  const problem = amount.error ?? suppliedMin.error ?? suppliedMax.error;
+  if (problem !== null) return problem;
+  const min = amount.value ?? suppliedMin.value;
+  const max = amount.value ?? suppliedMax.value;
   if (min !== null && max !== null && max < min) return 'The top of a pay range is below the bottom of it.';
   if (type === 'revenue_share' && ((min ?? 0) > 100 || (max ?? 0) > 100)) {
     return 'A revenue share is at most 100%.';
@@ -740,13 +754,12 @@ export function normalisePay(input: Record<string, unknown>): Pay | string {
 
   // The flat fields, when nothing newer was sent.
   if (lines.length === 0 && !saidUnpaid) {
-    const money = (value: unknown): number | null => {
-      if (value === null || value === undefined || value === '') return null;
-      const n = typeof value === 'number' ? value : Number(String(value).replace(/[,_$]/g, ''));
-      return Number.isFinite(n) && n >= 0 ? n : null;
-    };
-    const min = money(input['salaryMin']);
-    const max = money(input['salaryMax']);
+    const suppliedMin = payAmount(input['salaryMin']);
+    const suppliedMax = payAmount(input['salaryMax']);
+    const problem = suppliedMin.error ?? suppliedMax.error;
+    if (problem !== null) return problem;
+    const min = suppliedMin.value;
+    const max = suppliedMax.value;
     if (min !== null || max !== null) {
       if (min !== null && max !== null && max < min) {
         return 'The top of the salary range is below the bottom of it.';
