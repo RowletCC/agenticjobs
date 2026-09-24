@@ -115,9 +115,13 @@ export async function listInstances(
     where.push(`descriptor -> 'topics' ? $${params.length}`);
   }
   if (options.q) {
-    params.push(`%${options.q.toLowerCase()}%`);
+    // This is a substring search over directory text, not a user-supplied
+    // SQL LIKE pattern. Escape its metacharacters so `%` and `_` in names or
+    // URLs are searched as characters.
+    const query = options.q.toLowerCase().replace(/[\\%_]/g, '\\$&');
+    params.push(`%${query}%`);
     where.push(
-      `(lower(descriptor ->> 'name') like $${params.length} or lower(descriptor ->> 'tagline') like $${params.length} or url like $${params.length})`,
+      `(lower(descriptor ->> 'name') like $${params.length} escape E'\\\\' or lower(descriptor ->> 'tagline') like $${params.length} escape E'\\\\' or url like $${params.length} escape E'\\\\')`,
     );
   }
 
