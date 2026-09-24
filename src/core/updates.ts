@@ -172,7 +172,10 @@ const SELECT = selectFrom('updates');
 export function normaliseLink(value: unknown): string | null {
   const raw = clean(value, 500);
   if (raw === '') return null;
-  const withScheme = raw.includes('://') ? raw : `https://${raw}`;
+  // A URL in the path or query is not the link's own scheme. Checking the
+  // whole string wrongly rejects common links such as
+  // example.com/post?next=https://docs.example/guide.
+  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
   if (publishable(withScheme) === null) return null;
   const url = new URL(withScheme);
   // Credentials in a URL are for a fetcher, never for a link somebody clicks.
