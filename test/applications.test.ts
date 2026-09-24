@@ -47,3 +47,24 @@ test('submitting a draft with a malformed id is a miss, not a database error', a
   assert.equal(sent, false);
   assert.equal(reached, false, 'a malformed id never reaches the database');
 });
+
+test('an application field named __proto__ keeps its submitted answer', () => {
+  const result = validateApplication(
+    {
+      fields: [
+        { name: '__proto__', label: 'Portfolio', type: 'text', required: true, maxLength: 120 },
+      ],
+    },
+    JSON.parse('{"__proto__":"https://example.com/work"}') as Record<string, unknown>,
+    'welcome',
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(Object.hasOwn(result.value.answers, '__proto__'), true);
+  assert.equal(result.value.answers['__proto__'], 'https://example.com/work');
+  assert.equal(
+    JSON.stringify(result.value.answers),
+    '{"__proto__":"https://example.com/work"}',
+  );
+});
