@@ -42,6 +42,20 @@ test('a swarm priced as a whole divides down to the per-agent rate', () => {
   assert.equal(capacity?.ratePerAgentStated, false);
 });
 
+test('a derived per-agent average is not presented as a quoted rate for each agent', () => {
+  const capacity = parseCapacity(
+    contact([
+      ['Agents', '10'],
+      ['Rate', '$1,000/hour'],
+    ]),
+  );
+
+  assert.equal(
+    formatCapacity(capacity!),
+    '10 agents · $100/hr average · $1,000/hr total',
+  );
+});
+
 test('an unmarked rate is never read as per-agent', () => {
   // The expensive mistake: reading "$1,000/hour" as per-agent would report a
   // $10,000/hour swarm.
