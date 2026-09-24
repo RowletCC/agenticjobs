@@ -18,6 +18,8 @@
 import type pg from 'pg';
 import { clean, parseList, slugify, suffix } from '../schema/text.ts';
 
+type AgentQueryable = Pick<pg.Pool, 'query'>;
+
 export const NAME_MAX = 80;
 export const DESCRIPTION_MAX = 2000;
 export const SKILLS_MAX = 20;
@@ -146,7 +148,7 @@ function toAgent(row: AgentRow, operates: AgentRef[]): Agent {
   };
 }
 
-async function operatesOf(pool: pg.Pool, ids: string[]): Promise<Map<string, AgentRef[]>> {
+async function operatesOf(pool: AgentQueryable, ids: string[]): Promise<Map<string, AgentRef[]>> {
   const out = new Map<string, AgentRef[]>();
   if (ids.length === 0) return out;
   const rows = await pool.query<{ operator_id: string; slug: string; name: string }>(
@@ -161,7 +163,7 @@ async function operatesOf(pool: pg.Pool, ids: string[]): Promise<Map<string, Age
   return out;
 }
 
-async function hydrate(pool: pg.Pool, rows: AgentRow[]): Promise<Agent[]> {
+async function hydrate(pool: AgentQueryable, rows: AgentRow[]): Promise<Agent[]> {
   const operates = await operatesOf(
     pool,
     rows.map((row) => row.id),
@@ -200,7 +202,7 @@ export async function listPublicAgents(
 
 /** One agent by slug. Private agents are visible to their owner only. */
 export async function getAgent(
-  pool: pg.Pool,
+  pool: AgentQueryable,
   slug: string,
   viewerId: string | null,
 ): Promise<Agent | null> {
@@ -211,7 +213,7 @@ export async function getAgent(
   return (await hydrate(pool, [row]))[0] ?? null;
 }
 
-async function ownedRow(pool: pg.Pool, slug: string, ownerId: string): Promise<AgentRow> {
+async function ownedRow(pool: AgentQueryable, slug: string, ownerId: string): Promise<AgentRow> {
   const rows = await pool.query<AgentRow>(`${SELECT} where a.slug = $1`, [slug]);
   const row = rows.rows[0];
   if (row === undefined || row.owner_id !== ownerId) {
@@ -225,7 +227,7 @@ async function ownedRow(pool: pg.Pool, slug: string, ownerId: string): Promise<A
  * Returns undefined when the input did not mention one, null to clear.
  */
 async function operatorIdOf(
-  pool: pg.Pool,
+  pool: AgentQueryable,
   ownerId: string,
   input: AgentInput,
   selfId: string | null,
@@ -331,7 +333,7 @@ function flag(value: unknown): boolean {
 
 /** Change what is written about an agent. Only the fields sent are touched. */
 export async function updateAgent(
-  pool: pg.Pool,
+  pool: AgentQueryable,
   ownerId: string,
   slug: string,
   input: AgentInput,
@@ -393,13 +395,23 @@ export async function assignOperator(
   operatorSlug: string,
   agentSlugs: string[],
 ): Promise<Agent> {
-  const operator = await ownedRow(pool, operatorSlug, ownerId);
-  for (const slug of agentSlugs) {
-    await updateAgent(pool, ownerId, slug, { operator: operator.slug });
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const operator = await ownedRow(client, operatorSlug, ownerId);
+    for (const slug of agentSlugs) {
+      await updateAgent(client, ownerId, slug, { operator: operator.slug });
+    }
+    const refreshed = await getAgent(client, operator.slug, ownerId);
+    if (refreshed === null) throw new Error('operator vanished during assignment');
+    await client.query('commit');
+    return refreshed;
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
   }
-  const refreshed = await getAgent(pool, operator.slug, ownerId);
-  if (refreshed === null) throw new Error('operator vanished during assignment');
-  return refreshed;
 }
 
 export async function deleteAgent(pool: pg.Pool, ownerId: string, slug: string): Promise<void> {

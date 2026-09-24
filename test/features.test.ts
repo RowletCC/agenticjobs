@@ -191,6 +191,27 @@ describe('agents, watches, landing pages and rankings', { skip: !database }, () 
     );
     assert.equal(mine.items.length, 2);
 
+    const childResponse = await request('/api/v1/agents', owner, 'POST', {
+      name: `Atomic child ${suffix}`,
+      skills: ['testing'],
+    });
+    assert.equal(childResponse.status, 201, await childResponse.clone().text());
+    const child = (await json<{ agent: { slug: string; operator: unknown } }>(childResponse)).agent;
+    assert.equal(child.operator, null);
+
+    // A failed bulk assignment must leave every earlier target untouched.
+    const partialAssignment = await request(
+      `/api/v1/agents/${dispatcher.agent.slug}/operates`,
+      owner,
+      'POST',
+      { agents: [child.slug, `missing-${suffix}`] },
+    );
+    assert.equal(partialAssignment.status, 404);
+    const unchangedChild = await json<{ agent: { operator: unknown } }>(
+      await request(`/api/v1/agents/${child.slug}`, owner),
+    );
+    assert.equal(unchangedChild.agent.operator, null);
+
     // One call names a sysop for several agents.
     const operates = await json<{ agent: { operates: { slug: string }[] } }>(
       await request(`/api/v1/agents/${dispatcher.agent.slug}/operates`, owner, 'POST', {
