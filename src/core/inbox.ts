@@ -548,6 +548,7 @@ export async function counterpartyFrom(
 ): Promise<Counterparty | null> {
   const candidate = (input.candidate ?? '').trim();
   const employer = (input.employer ?? '').trim();
+  if (candidate !== '' && employer !== '') return null;
   if (candidate !== '') {
     const result = await pool.query<{ user_id: string }>(
       `select user_id from resumes
