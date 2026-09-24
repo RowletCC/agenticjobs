@@ -104,10 +104,16 @@ export function parseEvents(value: unknown, currency: string): TrackerEvent[] {
         'Event currency differs from the fleet. Import into a fleet with the matching currency.',
       );
     const at = e['at'] ?? null;
+    const datePart = typeof at === 'string' ? /^\d{4}-\d{2}-\d{2}/.exec(at)?.[0] : undefined;
+    const validCalendarDate =
+      datePart !== undefined &&
+      Number.isFinite(Date.parse(`${datePart}T00:00:00.000Z`)) &&
+      new Date(`${datePart}T00:00:00.000Z`).toISOString().slice(0, 10) === datePart;
     if (
       at !== null &&
       (typeof at !== 'string' ||
         !/^\d{4}-\d{2}-\d{2}T/.test(at) ||
+        !validCalendarDate ||
         !Number.isFinite(Date.parse(at)))
     )
       throw new TrackerProblem('Event time must be an ISO timestamp or null.');
