@@ -23,7 +23,7 @@
  * The convention is docs/openprofile.md.
  */
 
-import type { OpenResume, ResumeContact } from './resume.ts';
+import { parseMarkdownLink, type OpenResume, type ResumeContact } from './resume.ts';
 
 export interface ProfileSource {
   /** The name shown in the directory, already cleaned. */
@@ -135,9 +135,9 @@ function accountLines(parsed: OpenResume): string[] {
   for (const links of parsed.sections.filter((section) => section.kind === 'links')) {
     for (const line of links.markdown.split('\n')) {
       const bullet = line.replace(/^\s*[-*]\s+/, '').trim();
-      const md = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/i.exec(bullet);
-      if (md !== null) {
-        add((md[1] ?? '').trim(), md[2] ?? '');
+      const md = parseMarkdownLink(bullet);
+      if (md !== null && isHttp(md.href)) {
+        add(md.label.trim(), md.href);
         continue;
       }
       const bare = /^(https?:\/\/\S+)/i.exec(bullet);
