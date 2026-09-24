@@ -302,7 +302,9 @@ export async function searchJobs(
   const includeUnpublished = options.includeUnpublished === true;
   const { sql: whereSql, params } = conditions(query, includeUnpublished);
 
-  const counted = await pool.query<{ total: number }>(
+  // PostgreSQL's int8 parser returns a string for count(*), while JobPage
+  // promises a numeric total to API, CLI and federation consumers.
+  const counted = await pool.query<{ total: string }>(
     `select count(*)::bigint as total from jobs j join organisations o on o.id = j.org_id ${whereSql}`,
     params,
   );
@@ -315,7 +317,7 @@ export async function searchJobs(
 
   return {
     items: rows.rows.map(toJob),
-    total: counted.rows[0]?.total ?? 0,
+    total: Number(counted.rows[0]?.total ?? 0),
     limit: query.limit,
     offset: query.offset,
   };
