@@ -76,6 +76,16 @@ function locationOf(resume: Resume): string | null {
  */
 const NAME_MAX = 80;
 
+/** Remove Markdown emphasis from the heading before using it as plain UI text. */
+function plainName(value: string): string {
+  let text = value.trim();
+  for (;;) {
+    const cleaned = text.replace(/(\*{1,3}|_{1,3})(?=\S)([\s\S]*?\S)\1/g, '$2');
+    if (cleaned === text) return text.trim();
+    text = cleaned;
+  }
+}
+
 /**
  * "Looks like an email address", loosely — the check a public field needs,
  * not a validator. Used anywhere directory text could carry a channel.
@@ -93,7 +103,8 @@ const HAS_ADDRESS = /[^\s@]+@[^\s@]+\.[^\s@]+/;
  * field, the same way it does for the headline.
  */
 export function nameOf(resume: Resume): string {
-  const parsed = resume.parsed?.name?.trim();
+  const sourceName = resume.parsed?.name;
+  const parsed = sourceName === null || sourceName === undefined ? undefined : plainName(sourceName);
   if (
     parsed !== undefined &&
     parsed !== '' &&
