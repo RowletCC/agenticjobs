@@ -357,19 +357,12 @@ export function apiRoutes(): Hono<AppEnv> {
       );
     }
 
-    const application = await createApplication(pool, job.id, validated.value, { submit });
-    if (resumeMarkdown !== null || viewer !== null) {
-      await pool.query(
-        `update applications set resume_markdown = $2, resume_title = $3, user_id = $4
-          where id = $1`,
-        [
-          application.id,
-          resumeMarkdown,
-          resumeMarkdown === null ? null : (parseResume(resumeMarkdown).name ?? 'Resume'),
-          viewer?.id ?? null,
-        ],
-      );
-    }
+    const application = await createApplication(pool, job.id, validated.value, {
+      submit,
+      userId: viewer?.id ?? null,
+      resumeMarkdown,
+      resumeTitle: resumeMarkdown === null ? null : (parseResume(resumeMarkdown).name ?? 'Resume'),
+    });
 
     return c.json(
       {
