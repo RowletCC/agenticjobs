@@ -3,7 +3,12 @@ import { test } from 'node:test';
 import { deflateRawSync } from 'node:zlib';
 import { readZipEntry, ZipProblem } from '../dist/core/zip.js';
 
-function archive(data: Buffer, method: number, declaredSize = data.length): Buffer {
+function archive(
+  data: Buffer,
+  method: number,
+  declaredSize = data.length,
+  comment = Buffer.alloc(0),
+): Buffer {
   const name = Buffer.from('word/document.xml');
   const packed = method === 8 ? deflateRawSync(data) : data;
   const local = Buffer.alloc(30);
@@ -24,7 +29,8 @@ function archive(data: Buffer, method: number, declaredSize = data.length): Buff
   end.writeUInt16LE(1, 10);
   end.writeUInt32LE(central.length + name.length, 12);
   end.writeUInt32LE(local.length + name.length + packed.length, 16);
-  return Buffer.concat([local, name, packed, central, name, end]);
+  end.writeUInt16LE(comment.length, 20);
+  return Buffer.concat([local, name, packed, central, name, end, comment]);
 }
 
 test('DOCX entry expansion is bounded even when the declared size is false', () => {
@@ -37,7 +43,10 @@ test('DOCX entry expansion is bounded even when the declared size is false', () 
 test('declared oversized entries are rejected and ordinary entries still read', () => {
   const xml = Buffer.from('<w:document/>');
   for (const method of [0, 8]) {
-    assert.throws(() => readZipEntry(archive(xml, method, 16 * 1024 * 1024 + 1), 'word/document.xml'), ZipProblem);
+    assert.throws(
+      () => readZipEntry(archive(xml, method, 16 * 1024 * 1024 + 1), 'word/document.xml'),
+      ZipProblem,
+    );
     assert.deepEqual(readZipEntry(archive(xml, method), 'word/document.xml'), xml);
   }
 });
@@ -53,4 +62,11 @@ test('an entry must point to a real local header', () => {
   const zipped = archive(Buffer.from('<w:document/>'), 0);
   zipped.writeUInt32LE(0, 0);
   assert.throws(() => readZipEntry(zipped, 'word/document.xml'), ZipProblem);
+});
+
+test('a ZIP comment containing the end-directory signature does not hide the directory', () => {
+  const xml = Buffer.from('<w:document/>');
+  const comment = Buffer.alloc(22);
+  comment.writeUInt32LE(0x06054b50);
+  assert.deepEqual(readZipEntry(archive(xml, 0, xml.length, comment), 'word/document.xml'), xml);
 });
