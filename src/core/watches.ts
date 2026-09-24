@@ -223,7 +223,7 @@ export async function listNotifications(
     `select id, kind, title, body, url, created_at, read_at from notifications
       where user_id = $1 ${options.unreadOnly === true ? 'and read_at is null' : ''}
       order by created_at desc limit $2`,
-    [userId, Math.min(NOTIFICATIONS_KEPT, Math.max(1, options.limit ?? 50))],
+    [userId, Math.min(NOTIFICATIONS_KEPT, Math.max(1, options.limit ?? NOTIFICATIONS_KEPT))],
   );
   return rows.rows.map((row) => ({
     id: row.id,
