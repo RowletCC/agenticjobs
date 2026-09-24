@@ -317,7 +317,13 @@ export function htmlToMarkdown(html: string): string {
     /<article[\s\S]*?<\/article>/i.exec(s)?.[0] ??
     /<body[\s\S]*?<\/body>/i.exec(s)?.[0] ??
     s;
-  s = main.replace(/<(nav|header|footer|aside)[\s\S]*?<\/\1>/gi, '');
+  const hasContentLandmark = /<(main|article)\b/i.test(main);
+  s = main.replace(
+    hasContentLandmark
+      ? /<(nav|footer|aside)[\s\S]*?<\/\1>/gi
+      : /<(nav|header|footer|aside)[\s\S]*?<\/\1>/gi,
+    '',
+  );
   s = s.replace(
     /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi,
     (_, level: string, inner: string) => `\n\n${'#'.repeat(Number(level))} ${inline(inner)}\n\n`,
