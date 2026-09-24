@@ -147,13 +147,30 @@ export async function ensurePublicSlug(pool: pg.Pool, resume: Resume): Promise<s
   for (let attempt = 0; attempt < 25; attempt += 1) {
     const ending = attempt === 0 ? '' : `-${attempt + 1}`;
     const candidate = `${base.slice(0, SLUG_MAX - ending.length).replace(/-+$/, '')}${ending}`;
-    const claimed = await pool.query(
-      `update resumes set public_slug = $2 where id = $1 and public_slug is null
-         and not exists (select 1 from resumes where public_slug = $2)
-       returning public_slug`,
-      [resume.id, candidate],
-    );
+    let claimed;
+    try {
+      claimed = await pool.query(
+        `update resumes set public_slug = $2 where id = $1 and public_slug is null
+           and not exists (select 1 from resumes where public_slug = $2)
+         returning public_slug`,
+        [resume.id, candidate],
+      );
+    } catch (error) {
+      // The unique index is the final arbiter if two people claim the same
+      // name between the existence check and this update. Try the next suffix.
+      if ((error as { code?: string }).code !== '23505') throw error;
+      continue;
+    }
     if (claimed.rows.length > 0) return candidate;
+    // Another request may have shared this same resume while this one waited
+    // on its row lock. Return the address that request minted instead of
+    // trying suffixes against a resume that is no longer unclaimed.
+    const current = await pool.query<{ public_slug: string | null }>(
+      `select public_slug from resumes where id = $1`,
+      [resume.id],
+    );
+    const currentSlug = current.rows[0]?.public_slug;
+    if (currentSlug != null) return currentSlug;
   }
   return null;
 }
