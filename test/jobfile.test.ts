@@ -74,6 +74,21 @@ Role details`);
   assert.equal(parsed.description, 'Intro paragraph\n\nRole details');
 });
 
+test('a heading inside a code fence is not used as a job title', () => {
+  const example = '```md\n# Example only\n```\n\nRole details';
+  assert.deepEqual(parseJobDocument(example), { description: example });
+
+  const parsed = parseJobDocument(`---\norg: example-works\n---\n${example}\n\n# Engineer\n\nApply now`);
+  assert.equal(parsed.title, 'Engineer');
+  assert.ok(parsed.description.includes('# Example only'));
+  assert.ok(!parsed.description.includes('# Engineer'));
+
+  const longerFence = parseJobDocument('````md\n# Example\n```\n# Still code\n````\n# Engineer');
+  assert.equal(longerFence.title, 'Engineer');
+  const tildeFence = parseJobDocument('~~~md\n# Example\n~~~\n# Engineer');
+  assert.equal(tildeFence.title, 'Engineer');
+});
+
 test('CLI post and edit preserve job metadata with or without a UTF-8 BOM', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'agenticjobs-jobfile-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

@@ -14,6 +14,30 @@ export interface JobDocument extends Record<string, unknown> {
   description: string;
 }
 
+function firstHeading(text: string): { title: string; start: number; end: number } | null {
+  let offset = 0;
+  let fence: { marker: string; length: number } | null = null;
+  for (const line of text.split('\n')) {
+    if (fence !== null) {
+      const close = new RegExp(`^ {0,3}${fence.marker}{${fence.length},}[ \\t]*$`);
+      if (close.test(line)) fence = null;
+    } else {
+      const opening = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+      if (opening !== null) {
+        const run = opening[1] ?? '```';
+        fence = { marker: run[0] ?? '`', length: run.length };
+      } else {
+        const heading = /^#\s+(.+)$/.exec(line);
+        if (heading !== null) {
+          return { title: (heading[1] ?? '').trim(), start: offset, end: offset + line.length };
+        }
+      }
+    }
+    offset += line.length + 1;
+  }
+  return null;
+}
+
 export function parseJobDocument(source: string): JobDocument {
   // UTF-8 readers retain the leading byte-order marker; it is not document content.
   const text = source.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
@@ -22,7 +46,7 @@ export function parseJobDocument(source: string): JobDocument {
   if (match === null) {
     // No front matter: the whole file is the description, and its first
     // heading is the title, so a plain Markdown file still posts.
-    const title = /^#\s+(.+)$/m.exec(text)?.[1]?.trim();
+    const title = firstHeading(text)?.title;
     return {
       description: text.trim(),
       ...(title === undefined ? {} : { title }),
@@ -31,12 +55,12 @@ export function parseJobDocument(source: string): JobDocument {
 
   const front = parseFrontMatter(match[1] ?? '');
   const body = text.slice(match[0].length).trim();
-  const heading = /^#\s+(.+)$/m.exec(body);
-  const title = front['title'] ?? heading?.[1]?.trim();
+  const heading = firstHeading(body);
+  const title = front['title'] ?? heading?.title;
   let description = body;
   if (front['title'] === undefined && heading !== null) {
-    const before = body.slice(0, heading.index).replace(/(?:\n[ \t]*)+$/, '');
-    const after = body.slice(heading.index + heading[0].length).replace(/^\n(?:[ \t]*\n)*/, '');
+    const before = body.slice(0, heading.start).replace(/(?:\n[ \t]*)+$/, '');
+    const after = body.slice(heading.end).replace(/^\n(?:[ \t]*\n)*/, '');
     description = [before, after].filter((part) => part !== '').join('\n\n');
   }
 
