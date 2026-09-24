@@ -40,6 +40,25 @@ test('keeps existing string addresses and textual address components', () => {
   }), 'Seattle, WA, US');
 });
 
+test('retains every physical location from a JobPosting array', () => {
+  const posting = {
+    '@context': 'https://schema.org',
+    '@type': 'JobPosting',
+    title: 'Research engineer',
+    description: 'Build and maintain scientific data tools.',
+    jobLocation: [
+      { '@type': 'Place', address: { addressLocality: 'Dublin', addressCountry: 'Ireland' } },
+      { '@type': 'Place', address: { addressLocality: 'Lisbon', addressCountry: 'Portugal' } },
+    ],
+  };
+  const html = `<script type="application/ld+json">${JSON.stringify(posting)}</script>`;
+
+  assert.equal(
+    extractJob(html, 'https://example.com/jobs/research').location,
+    'Dublin, Ireland; Lisbon, Portugal',
+  );
+});
+
 test('does not invent names for unnamed, malformed, or array-valued places', () => {
   for (const country of [null, {}, { '@type': 'Country' }, { name: '' }, { name: 12 }, ['CA']]) {
     assert.equal(importLocation({ addressLocality: 'Toronto', addressCountry: country }), 'Toronto');
