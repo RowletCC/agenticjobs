@@ -47,35 +47,40 @@ export const PostJobPage: FC<{
         </Alert>
       ) : (
         <>
-          {canDraft && (
-            <form class="stack-sm" method="post" action="/post/draft">
-              <Field
-                label="Write it with an agent"
-                name="brief"
-                hint="A sentence or two is enough. It fills the form in below and posts nothing: you read and edit every field, and it still stays a draft after that."
-              >
-                <textarea
-                  class="textarea"
-                  id="brief"
-                  name="brief"
-                  rows={3}
-                  placeholder="Senior Go engineer, remote in European timezones, to own our payments service."
-                >
-                  {brief}
-                </textarea>
-              </Field>
-              <div class="row">
-                <button class="btn btn-secondary" type="submit">
-                  Draft it
-                </button>
-                <span class="small muted">
-                  It will not invent a salary. Pay comes from what you write here, or stays empty.
-                </span>
-              </div>
-            </form>
-          )}
-
           <form class="stack" method="post" action="/post">
+            {canDraft && (
+              <div class="stack-sm">
+                <Field
+                  label="Write it with an agent"
+                  name="brief"
+                  hint="A sentence or two is enough. It fills the form in below and posts nothing: you read and edit every field, and it still stays a draft after that."
+                >
+                  <textarea
+                    class="textarea"
+                    id="brief"
+                    name="brief"
+                    rows={3}
+                    placeholder="Senior Go engineer, remote in European timezones, to own our payments service."
+                  >
+                    {brief}
+                  </textarea>
+                </Field>
+                <div class="row">
+                  <button
+                    class="btn btn-secondary"
+                    type="submit"
+                    formaction="/post/draft"
+                    formnovalidate
+                  >
+                    Draft it
+                  </button>
+                  <span class="small muted">
+                    It will not invent a salary. Pay comes from what you write here, or stays empty.
+                  </span>
+                </div>
+              </div>
+            )}
+
             <Field label="Employer" name="org">
               <select class="select" id="org" name="org" required>
                 {orgs.map((org) => (
