@@ -21,15 +21,17 @@ test('an employer website retains a nested URL parameter when edited', async () 
     id: 'org-1', slug: 'example', name: 'Example', website: null, logo_url: null,
     description: null, created_at: '2026-01-01T00:00:00Z',
   };
-  let written: unknown[] | undefined;
+  let writtenWebsite: unknown;
   const pool = {
-    async query(_sql: string, values: unknown[]) {
-      if (values.length === 1) return { rows: [existing] };
-      written = values;
-      return { rows: [{ ...existing, website: values[2] }] };
+    async query(sql: string, values: unknown[]) {
+      if (sql.startsWith('select ')) return { rows: [existing] };
+      const binding = /website = \$(\d+)/.exec(sql);
+      assert.ok(binding, 'the patch updates the website');
+      writtenWebsite = values[Number(binding[1]) - 1];
+      return { rows: [{ ...existing, website: writtenWebsite }] };
     },
   };
   const result = await updateOrg(pool as never, 'example', { website: pasted });
-  assert.equal(written?.[2], expected);
+  assert.equal(writtenWebsite, expected);
   assert.equal(typeof result === 'string' ? result : result.website, expected);
 });
