@@ -8,7 +8,7 @@
  */
 
 import type { Job, JobPage, JobQuery, Organisation } from '../schema/index.ts';
-import { queryToParams } from '../schema/query.ts';
+import { EMPTY_QUERY, queryToParams } from '../schema/query.ts';
 import type { InstanceDescriptor, InstanceListing } from '../schema/instance.ts';
 import { WELL_KNOWN_PATH } from '../schema/instance.ts';
 import { normaliseServer } from './config.ts';
@@ -295,18 +295,17 @@ export class BoardClient {
 
   async search(query: Partial<JobQuery>): Promise<JobPage<Job> & { query: JobQuery }> {
     const params = queryToParams({
-      q: null,
-      employmentType: null,
-      workplace: null,
-      seniority: null,
-      agentPolicy: null,
-      tags: [],
-      salaryMin: null,
-      org: null,
-      sort: 'recent',
-      limit: 25,
-      offset: 0,
+      ...EMPTY_QUERY,
       ...query,
+      // Callers often forward optional filters as object properties. An
+      // explicitly undefined value must behave like an omitted field rather
+      // than overwrite these defaults (queryToParams reads tags.length and
+      // serializes the pagination fields directly).
+      tags: query.tags ?? EMPTY_QUERY.tags,
+      salaryMin: query.salaryMin ?? EMPTY_QUERY.salaryMin,
+      sort: query.sort ?? EMPTY_QUERY.sort,
+      limit: query.limit ?? EMPTY_QUERY.limit,
+      offset: query.offset ?? EMPTY_QUERY.offset,
     });
     const search = params.toString();
     return this.request('GET', `/api/v1/jobs${search === '' ? '' : `?${search}`}`);
