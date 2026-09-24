@@ -9,8 +9,13 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatCapacity, parseAgentCount, parseCapacity, parseRate } from '../dist/core/capacity.js';
-import { capacityAlertMessage } from '../dist/core/capacity-alert.js';
+import {
+  formatCapacity,
+  parseAgentCount,
+  parseCapacity,
+  parseRate,
+} from '../dist/core/capacity.js';
+import { capacityAlertMessage, candidatesMissingCapacity } from '../dist/core/capacity-alert.js';
 import { parseResume } from '../dist/markup/resume.js';
 
 const contact = (pairs: [string, string][]) =>
@@ -50,10 +55,7 @@ test('a derived per-agent average is not presented as a quoted rate for each age
     ]),
   );
 
-  assert.equal(
-    formatCapacity(capacity!),
-    '10 agents · $100/hr average · $1,000/hr total',
-  );
+  assert.equal(formatCapacity(capacity!), '10 agents · $100/hr average · $1,000/hr total');
 });
 
 test('an unmarked rate is never read as per-agent', () => {
@@ -224,6 +226,44 @@ test('the ask shows both the swarm and the single-agent shape', () => {
   assert.match(message.text, /\*\*Agents\*\*: 1\n/);
   assert.match(message.text, /stays listed/);
   assert.match(message.html, /board\.test\/me\/resumes\/athena/);
+});
+
+test('capacity alerts select the newest public resume that is missing capacity', async () => {
+  const resumes = [
+    {
+      user_id: 'candidate-1',
+      email: 'ada@example.test',
+      title: 'Current profile',
+      slug: 'current-profile',
+      public_slug: 'ada-current',
+      parsed: { name: 'Ada Lovelace', contact: [{ key: 'Agents', value: '4' }] },
+    },
+    {
+      user_id: 'candidate-1',
+      email: 'ada@example.test',
+      title: 'Older profile',
+      slug: 'older-profile',
+      public_slug: 'ada-older',
+      parsed: { name: 'Ada Lovelace', contact: [] },
+    },
+  ];
+  const pool = {
+    query: async (sql: string) => ({
+      // Model Postgres DISTINCT ON: its first ordered row hides later resumes
+      // belonging to the same user.
+      rows: sql.includes('distinct on (r.user_id)') ? resumes.slice(0, 1) : resumes,
+    }),
+  };
+
+  assert.deepEqual(await candidatesMissingCapacity(pool as never), [
+    {
+      userId: 'candidate-1',
+      email: 'ada@example.test',
+      name: 'Ada Lovelace',
+      publicSlug: 'ada-older',
+      slug: 'older-profile',
+    },
+  ]);
 });
 
 /**

@@ -52,13 +52,13 @@ interface TargetRow {
  *
  * One row per person, not per resume. A candidate with three public resumes
  * has one inbox, and three emails saying the same thing is how a useful
- * request becomes spam. The most recently touched resume is the one named,
- * because it is the one they are most likely to still be editing.
+ * request becomes spam. The most recently touched resume missing capacity is
+ * the one named, because a newer resume that already states it should not
+ * hide an older public resume that still leaves employers guessing.
  */
 export async function candidatesMissingCapacity(pool: pg.Pool): Promise<CapacityAlertTarget[]> {
   const result = await pool.query<TargetRow>(
-    `select distinct on (r.user_id)
-            r.user_id, u.email, r.title, r.slug, r.public_slug, r.parsed
+    `select r.user_id, u.email, r.title, r.slug, r.public_slug, r.parsed
        from resumes r
        join users u on u.id = r.user_id
       where r.visibility = 'public'
@@ -68,10 +68,13 @@ export async function candidatesMissingCapacity(pool: pg.Pool): Promise<Capacity
   );
 
   const out: CapacityAlertTarget[] = [];
+  const included = new Set<string>();
   for (const row of result.rows) {
     // The same parser the card uses. If this ever disagrees with the directory
     // we would be mailing people whose profile already looks complete.
     if (parseCapacity(row.parsed?.contact ?? []) !== null) continue;
+    if (included.has(row.user_id)) continue;
+    included.add(row.user_id);
     const name = row.parsed?.name?.trim();
     out.push({
       userId: row.user_id,
