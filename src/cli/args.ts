@@ -31,15 +31,21 @@ const BOOLEAN_FLAGS = new Set([
   'unsupervised',
   'draft',
   'salary-unpaid',
+  'unpaid',
   'publish',
   'following',
   'candidate',
+  'private',
+  'no-email',
+  'unread',
+  'read',
 ]);
 
 function takesValue(name: string, next: string | undefined): next is string {
+  const negativeNumber = next !== undefined && /^-\d+(?:\.\d+)?$/.test(next);
   return (
     next !== undefined &&
-    !next.startsWith('-') &&
+    (!next.startsWith('-') || negativeNumber) &&
     (!BOOLEAN_FLAGS.has(name) || /^(true|false|1|0|yes|no)$/i.test(next))
   );
 }

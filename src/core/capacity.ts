@@ -42,7 +42,7 @@ const SYMBOLS: [string, string][] = [
 export interface SwarmCapacity {
   /** Agents working in parallel. 1 is a single agent, and is a real answer. */
   agents: number;
-  /** Hourly cost of ONE agent. Null when the resume only priced the swarm. */
+  /** Hourly per-agent rate, stated or calculated from a swarm total. */
   ratePerAgent: number | null;
   /** Hourly cost of the whole swarm. Null when the resume gave no price. */
   totalPerHour: number | null;
@@ -132,10 +132,13 @@ export function parseRate(value: string): ParsedRate | null {
 
   // Strip any currency code before looking for digits, or "USD 100" would be
   // fine but a stray code containing digits would not.
-  const numeric = text.replace(/\b[a-z]{3}\b/gi, ' ').replace(/,/g, '');
-  const match = /(?:\d+(?:\.\d+)?|\.\d+)/.exec(numeric);
+  // Keep a price's sign even when it precedes the symbol or currency code.
+  // Dropping it turns an invalid "-$100/hr" into an advertised $100/hr.
+  const numeric = text.replace(/\b[a-z]{3}\b/gi, ' ').replace(/[,\$€£¥]/g, '');
+  const match = /([+\-−]?)\s*(\d+(?:\.\d+)?|\.\d+)/.exec(numeric);
   if (match === null) return null;
-  const amount = Number.parseFloat(match[0]);
+  if (match[1] === '-' || match[1] === '−') return null;
+  const amount = Number.parseFloat(match[2] ?? '');
   if (!Number.isFinite(amount) || amount <= 0) return null;
 
   const perAgent = /(\/|\bper\s+)agent\b|\beach\b|\ban?\s+agent\b|\bper\s+bot\b/i.test(text);
@@ -205,12 +208,11 @@ function amount(value: number): string {
 }
 
 /**
- * One line an employer can read, e.g. "10 agents · $100/hr each · $1,000/hr total".
+ * One line an employer can read. A calculated per-agent rate is labelled as an average.
  *
- * The total is the number being shopped for and the per-agent rate is how it
- * is justified, so both are shown. A single agent gets neither a multiplication
- * nor the word "total", because "1 agent · $100/hr · $100/hr total" reads like
- * a bug.
+ * The total is the number being shopped for; the per-agent figure adds context.
+ * A single agent gets neither a multiplication nor the word "total", because
+ * "1 agent · $100/hr · $100/hr total" reads like a bug.
  */
 export function formatCapacity(capacity: SwarmCapacity): string {
   const agents = capacity.agents === 1 ? '1 agent' : `${capacity.agents} agents`;
@@ -219,7 +221,11 @@ export function formatCapacity(capacity: SwarmCapacity): string {
   const unit = capacity.currency === 'USD' ? '$' : `${capacity.currency} `;
   if (capacity.agents === 1) return `${agents} · ${unit}${amount(capacity.totalPerHour)}/hr`;
 
-  const each =
-    capacity.ratePerAgent === null ? '' : ` · ${unit}${amount(capacity.ratePerAgent)}/hr each`;
-  return `${agents}${each} · ${unit}${amount(capacity.totalPerHour)}/hr total`;
+  const perAgent =
+    capacity.ratePerAgent === null
+      ? ''
+      : ` · ${unit}${amount(capacity.ratePerAgent)}/hr ${
+          capacity.ratePerAgentStated ? 'each' : 'average'
+        }`;
+  return `${agents}${perAgent} · ${unit}${amount(capacity.totalPerHour)}/hr total`;
 }

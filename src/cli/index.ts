@@ -12,11 +12,17 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { flagBool, flagList, flagNumber, flagString, parseArgs, type Args } from './args.ts';
 import { bold, dim } from './format.ts';
-import { installLine, update as runUpdate, uninstall as runUninstall, whereIsIt } from './manage.ts';
+import {
+  installLine,
+  update as runUpdate,
+  uninstall as runUninstall,
+  whereIsIt,
+} from './manage.ts';
 import {
   ApiError,
   BoardClient,
@@ -41,6 +47,7 @@ import { APPLICATION_DECISIONS, isApplicationDecision } from '../schema/job.ts';
 // rather than keeping a second copy of them in step by hand.
 import { VISIBILITIES } from '../core/resumes.ts';
 import type { Job, JobQuery, Organisation } from '../schema/index.ts';
+import { MAX_LIMIT } from '../schema/query.ts';
 
 const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self-host
 
@@ -118,6 +125,7 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     employer update <slug>    [--name n] [--website u] [--description d]
     employer delete <slug> --yes
     post <file.md>            post a job; stays a draft until you publish
+                              --publish to go live; --idempotency-key <k> makes a re-run safe
       --pay "<line>"            what it pays, repeatable: "$0.25 per task",
                               "$120k - $150k a year", "$5000 fixed"
       --pay-method <how>        SOL, USDC, bank transfer, PayPal, payroll
@@ -131,6 +139,26 @@ const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self
     close <slug>              close a listing
     applications <slug>       what came in
     decide <id> <status>      reviewing, rejected or hired
+
+  Watching
+    watch <words> [filters]   be told when a matching listing is published
+      --remote --agents --tag <t> --workplace <w> --min <n>
+      --no-email                on the board (and in the browser) only
+    watches                   what you are watching
+    unwatch <id>              stop
+    notifications             what matched, newest first (--unread, --read)
+
+  Your agents
+    agents register <name> --skills "rust, code review"
+      --operator <slug>         another of your agents that runs this one
+      --description <text> --url <url> --private
+    agents list [--public]    yours, or the public directory (--skill <s>)
+    agents show|update|remove <slug>
+    agents operates <sysop> <agent>...   name one agent the operator of others
+
+  Rankings
+    popular [--period week|month|all] [--board applied]
+    profitable [--period ...]   best paid, by stated annual pay
 
   Fleet tracker
     tracker register <name> --operator <profile> --count <agents>
@@ -195,8 +223,8 @@ async function main(): Promise<number> {
 async function run(args: Args): Promise<number> {
   switch (args.command) {
     case 'tracker': {
-      const {runTracker}=await import('./tracker.ts');
-      return runTracker(args,clientFor(args));
+      const { runTracker } = await import('./tracker.ts');
+      return runTracker(args, clientFor(args));
     }
     // Running a board. Imported lazily so `agenticjobs search` on a laptop
     // needs neither a database nor the server half of the code.
@@ -326,20 +354,32 @@ async function run(args: Args): Promise<number> {
       switch (sub) {
         case 'status': {
           const state = await sync.syncStatus(options);
-          process.stdout.write(`here   ${state.marker ? `revision ${state.marker.revision}, synced ${when(state.marker.at)}` : 'never synced'}\n`);
-          process.stdout.write(`board  ${state.serverRevision !== undefined ? `revision ${state.serverRevision}${state.serverHost ? ` from ${state.serverHost}` : ''}` : 'nothing yet'}\n`);
-          if (state.drifted.length) process.stdout.write(`changed here: ${state.drifted.join(', ')}  (agenticjobs sync save)\n`);
+          process.stdout.write(
+            `here   ${state.marker ? `revision ${state.marker.revision}, synced ${when(state.marker.at)}` : 'never synced'}\n`,
+          );
+          process.stdout.write(
+            `board  ${state.serverRevision !== undefined ? `revision ${state.serverRevision}${state.serverHost ? ` from ${state.serverHost}` : ''}` : 'nothing yet'}\n`,
+          );
+          if (state.drifted.length)
+            process.stdout.write(
+              `changed here: ${state.drifted.join(', ')}  (agenticjobs sync save)\n`,
+            );
           if (state.behind) process.stdout.write('the board is newer  (agenticjobs sync load)\n');
-          if (state.marker && !state.drifted.length && !state.behind) process.stdout.write('in sync.\n');
+          if (state.marker && !state.drifted.length && !state.behind)
+            process.stdout.write('in sync.\n');
           return 0;
         }
         case 'save': {
           const result = await sync.syncSave({ ...options, force });
-          if (result.status === 'saved') process.stdout.write(`Saved revision ${result.revision}: the boards you use.\n`);
-          else if (result.status === 'unchanged') process.stdout.write(`Nothing changed since revision ${result.revision}.\n`);
+          if (result.status === 'saved')
+            process.stdout.write(`Saved revision ${result.revision}: the boards you use.\n`);
+          else if (result.status === 'unchanged')
+            process.stdout.write(`Nothing changed since revision ${result.revision}.\n`);
           else if (result.status === 'empty') process.stdout.write('Nothing to save yet.\n');
           else {
-            process.stderr.write(`Not saved: another machine saved revision ${result.serverRevision} first. \`agenticjobs sync load\` to take theirs, or \`agenticjobs sync save --force\`.\n`);
+            process.stderr.write(
+              `Not saved: another machine saved revision ${result.serverRevision} first. \`agenticjobs sync load\` to take theirs, or \`agenticjobs sync save --force\`.\n`,
+            );
             return 1;
           }
           return 0;
@@ -348,23 +388,32 @@ async function run(args: Args): Promise<number> {
           const result = await sync.syncLoad({ ...options, force, dryRun });
           switch (result.status) {
             case 'empty':
-              process.stdout.write('Nothing saved on the board yet. `agenticjobs sync save` on the machine whose boards you want.\n');
+              process.stdout.write(
+                'Nothing saved on the board yet. `agenticjobs sync save` on the machine whose boards you want.\n',
+              );
               return 0;
             case 'same':
               process.stdout.write(`Already at revision ${result.revision}.\n`);
               return 0;
             case 'planned':
-              for (const entry of result.plan) process.stdout.write(`${entry.status.padEnd(8)} ${entry.path}\n`);
+              for (const entry of result.plan)
+                process.stdout.write(`${entry.status.padEnd(8)} ${entry.path}\n`);
               process.stdout.write(`Would take revision ${result.revision}; nothing written.\n`);
               return 0;
             case 'newer':
-              process.stderr.write('The board holds settings saved by a newer agenticjobs. Upgrade first.\n');
+              process.stderr.write(
+                'The board holds settings saved by a newer agenticjobs. Upgrade first.\n',
+              );
               return 1;
             case 'local_changes':
-              process.stderr.write(`Not loaded: ${result.drifted.join(', ')} changed here since the last sync. \`agenticjobs sync save\` to keep yours, \`agenticjobs sync load --force\` to replace them.\n`);
+              process.stderr.write(
+                `Not loaded: ${result.drifted.join(', ')} changed here since the last sync. \`agenticjobs sync save\` to keep yours, \`agenticjobs sync load --force\` to replace them.\n`,
+              );
               return 1;
             case 'loaded':
-              process.stdout.write(`Loaded revision ${result.revision}.${result.added.length ? ` Added ${result.added.join(', ')}; \`agenticjobs login\` each to get a token.` : ''}${result.directoriesAdded.length ? ` Directories: ${result.directoriesAdded.join(', ')}.` : ''}\n`);
+              process.stdout.write(
+                `Loaded revision ${result.revision}.${result.added.length ? ` Added ${result.added.join(', ')}; \`agenticjobs login\` each to get a token.` : ''}${result.directoriesAdded.length ? ` Directories: ${result.directoriesAdded.join(', ')}.` : ''}\n`,
+              );
               return 0;
           }
           return 0;
@@ -372,7 +421,10 @@ async function run(args: Args): Promise<number> {
         case 'revisions': {
           const revisions = await sync.syncContext(options).client.revisions();
           if (!revisions.length) process.stdout.write('Nothing saved yet.\n');
-          for (const entry of revisions) process.stdout.write(`${String(entry.revision).padStart(4)}  ${when(entry.savedAt)}  ${entry.host ?? ''}  ${entry.size} bytes\n`);
+          for (const entry of revisions)
+            process.stdout.write(
+              `${String(entry.revision).padStart(4)}  ${when(entry.savedAt)}  ${entry.host ?? ''}  ${entry.size} bytes\n`,
+            );
           return 0;
         }
         default:
@@ -429,6 +481,35 @@ async function run(args: Args): Promise<number> {
 
     case 'inbox':
       return commandInbox(args);
+    case 'agents': {
+      const { runAgents } = await import('./agents.ts');
+      return runAgents(args, clientFor(args), (human, machine) => out(args, human, machine));
+    }
+    case 'watch': {
+      const { runWatch } = await import('./watches.ts');
+      return runWatch(args, clientFor(args), queryFrom(args), (human, machine) =>
+        out(args, human, machine),
+      );
+    }
+    case 'watches': {
+      const { runWatches } = await import('./watches.ts');
+      return runWatches(clientFor(args), (human, machine) => out(args, human, machine));
+    }
+    case 'unwatch': {
+      const { runUnwatch } = await import('./watches.ts');
+      return runUnwatch(args, clientFor(args), (human, machine) => out(args, human, machine));
+    }
+    case 'notifications': {
+      const { runNotifications } = await import('./watches.ts');
+      return runNotifications(args, clientFor(args), (human, machine) => out(args, human, machine));
+    }
+    case 'popular':
+    case 'profitable': {
+      const { runRankings } = await import('./watches.ts');
+      return runRankings(args, clientFor(args), args.command, (human, machine) =>
+        out(args, human, machine),
+      );
+    }
     case 'message':
       return commandMessage(args);
     case 'reply':
@@ -505,15 +586,31 @@ function queryFrom(args: Args): Partial<JobQuery> {
   }
   const min = flagNumber(args, 'min', 'salary-min');
   if (min !== undefined) query.salaryMin = min;
-  const limit = flagNumber(args, 'limit', 'n');
-  if (limit !== undefined) query.limit = limit;
+  const limit = flagString(args, 'limit', 'n');
+  if (limit !== undefined) {
+    const parsed = Number(limit);
+    if (
+      !/^[+-]?\d+$/.test(limit.trim()) ||
+      !Number.isSafeInteger(parsed) ||
+      parsed < 1 ||
+      parsed > MAX_LIMIT
+    ) {
+      throw new Error(`--limit must be a whole number from 1 to ${MAX_LIMIT}.`);
+    }
+    query.limit = parsed;
+  }
   return query;
 }
 
 function jobLine(job: Job, where?: string): string {
   const salary = formatPayShort(payOfJob(job));
-  const bits = [job.workplace, job.seniority, job.location, salary, `agents: ${job.agentPolicy}`]
-    .filter((bit): bit is string => typeof bit === 'string' && bit !== '');
+  const bits = [
+    job.workplace,
+    job.seniority,
+    job.location,
+    salary,
+    `agents: ${job.agentPolicy}`,
+  ].filter((bit): bit is string => typeof bit === 'string' && bit !== '');
   return [
     `${job.title}  ${dim(`- ${job.org.name}`)}`,
     `  ${dim(bits.join(' | '))}`,
@@ -663,7 +760,9 @@ function commandBoards(args: Args): number {
   const config = loadConfig();
   const boards = Object.values(config.boards);
   if (boards.length === 0) {
-    return out(args, `No boards yet. Try:\n\n  agenticjobs login ${DEFAULT_SERVER}`, { boards: [] });
+    return out(args, `No boards yet. Try:\n\n  agenticjobs login ${DEFAULT_SERVER}`, {
+      boards: [],
+    });
   }
   const lines = boards.map((board) => {
     const marker = board.server === config.current ? '*' : ' ';
@@ -949,7 +1048,11 @@ async function commandResume(args: Args): Promise<number> {
       ...(visibility === undefined ? {} : { visibility }),
     });
     for (const warning of imported.warnings) process.stderr.write(`note: ${warning}\n`);
-    return out(args, `Converted from ${imported.via}. ${savedMessage(client.server, saved)}`, saved);
+    return out(
+      args,
+      `Converted from ${imported.via}. ${savedMessage(client.server, saved)}`,
+      saved,
+    );
   }
 
   /**
@@ -1021,11 +1124,9 @@ async function commandEmployer(args: Args): Promise<number> {
   if (action === 'list') {
     const orgs = await client.myOrgs();
     if (orgs.length === 0) {
-      return out(
-        args,
-        `No employers yet. ${dim('agenticjobs employer create "Example Works"')}`,
-        { items: orgs },
-      );
+      return out(args, `No employers yet. ${dim('agenticjobs employer create "Example Works"')}`, {
+        items: orgs,
+      });
     }
     return out(args, orgs.map(employerLine).join('\n'), { items: orgs });
   }
@@ -1076,9 +1177,7 @@ async function commandEmployer(args: Args): Promise<number> {
     const name = flagString(args, 'name');
     const fields = { ...(name === undefined ? {} : { name }), ...employerFields(args) };
     if (Object.keys(fields).length === 0) {
-      process.stderr.write(
-        'Nothing to change. Pass --name, --website, --description or --logo.\n',
-      );
+      process.stderr.write('Nothing to change. Pass --name, --website, --description or --logo.\n');
       return 1;
     }
     const updated = await client.updateOrg(slug, fields);
@@ -1099,7 +1198,9 @@ async function commandEmployer(args: Args): Promise<number> {
       return 1;
     }
     if (!flagBool(args, 'yes', 'y')) {
-      process.stderr.write(`This deletes ${slug} and cannot be undone. Add --yes if you mean it.\n`);
+      process.stderr.write(
+        `This deletes ${slug} and cannot be undone. Add --yes if you mean it.\n`,
+      );
       return 1;
     }
     const removed = await client.deleteOrg(slug);
@@ -1210,9 +1311,7 @@ async function commandImport(args: Args): Promise<number> {
   });
 
   const lines = [
-    result.created
-      ? `Imported as a draft: ${result.job.slug}`
-      : `Refreshed: ${result.job.slug}`,
+    result.created ? `Imported as a draft: ${result.job.slug}` : `Refreshed: ${result.job.slug}`,
     result.via === 'jsonld'
       ? dim('  read from the JobPosting data the page publishes')
       : dim('  that page publishes no JobPosting data, so this was read off the page'),
@@ -1294,11 +1393,30 @@ async function commandPost(args: Args): Promise<number> {
   }
   if (flagBool(args, 'publish')) input['publish'] = true;
 
-  const created = await client.postJob(input);
+  // A key names this post, so running the command again after a lost answer
+  // returns the listing it already made instead of a second one. Without the
+  // flag the client picks one per call, which covers a retry within this
+  // process; the flag covers a script that re-runs the whole command.
+  const idempotencyKey = flagString(args, 'idempotency-key', 'key') ?? randomUUID();
+  let created: Awaited<ReturnType<typeof client.postJob>>;
+  try {
+    created = await client.postJob(input, { idempotencyKey });
+  } catch (error) {
+    if (error instanceof ApiError && (error.code === 'timeout' || error.code === 'unreachable')) {
+      process.stderr.write(
+        `${error.message}\n${dim(
+          `  The board may still have created it. Run the same command again with --idempotency-key ${idempotencyKey} and it will not make a second listing.`,
+        )}\n`,
+      );
+      return 1;
+    }
+    throw error;
+  }
   const live = created.job.status === 'published';
+  const verb = created.replayed === true ? 'Already created' : 'Created';
   return out(
     args,
-    `Created ${live ? 'and published' : 'as a draft'}: ${created.job.slug}\n${live ? '' : dim(`  publish it: agenticjobs publish ${created.job.slug}`)}`,
+    `${verb} ${live ? 'and published' : 'as a draft'}: ${created.job.slug}\n${live ? '' : dim(`  publish it: agenticjobs publish ${created.job.slug}`)}`,
     created,
   );
 }
@@ -1400,7 +1518,9 @@ async function commandNews(args: Args): Promise<number> {
   if (args.positional[0] === 'post') {
     const body = args.positional.slice(1).join(' ').trim();
     if (body === '') {
-      process.stderr.write('Say something: agenticjobs news post "we shipped it" --link https://...\n');
+      process.stderr.write(
+        'Say something: agenticjobs news post "we shipped it" --link https://...\n',
+      );
       return 1;
     }
     const link = flagString(args, 'link');
@@ -1435,16 +1555,21 @@ async function commandRecommend(args: Args): Promise<number> {
   const slug = args.positional[0] ?? '';
   const body = args.positional.slice(1).join(' ').trim();
   if (slug === '' || body === '') {
-    process.stderr.write('agenticjobs recommend <employer-slug> "what you would say" [--candidate] [--as employer]\n');
+    process.stderr.write(
+      'agenticjobs recommend <employer-slug> "what you would say" [--candidate] [--as employer]\n',
+    );
     return 1;
   }
   const as = flagString(args, 'as');
   const relationship = flagString(args, 'relationship');
-  const written = await clientFor(args).recommend(flagBool(args, 'candidate') ? { candidate: slug } : { org: slug }, {
-    body,
-    ...(as === undefined ? {} : { as }),
-    ...(relationship === undefined ? {} : { relationship }),
-  });
+  const written = await clientFor(args).recommend(
+    flagBool(args, 'candidate') ? { candidate: slug } : { org: slug },
+    {
+      body,
+      ...(as === undefined ? {} : { as }),
+      ...(relationship === undefined ? {} : { relationship }),
+    },
+  );
   return out(
     args,
     `Written, from ${written.recommendation.author.name}. It is pending until ${written.recommendation.subject.name} approves it.`,
@@ -1462,13 +1587,26 @@ async function commandRecommendations(args: Args): Promise<number> {
       return 1;
     }
     const result = await client.decideRecommendation(id, verb);
-    return out(args, verb === 'withdraw' ? 'Withdrawn.' : `Now ${result.recommendation?.status ?? verb}.`, result);
+    return out(
+      args,
+      verb === 'withdraw' ? 'Withdrawn.' : `Now ${result.recommendation?.status ?? verb}.`,
+      result,
+    );
   }
   const mine = await client.myRecommendations();
   if (mine.received.length === 0 && mine.given.length === 0) {
     return out(args, 'None yet, in either direction.', mine);
   }
-  const line = (item: { id: string; status: string; author: { name: string }; subject: { name: string }; body: string }, about: boolean): string =>
+  const line = (
+    item: {
+      id: string;
+      status: string;
+      author: { name: string };
+      subject: { name: string };
+      body: string;
+    },
+    about: boolean,
+  ): string =>
     [
       `${item.status === 'pending' ? bold('* ') : '  '}${bold(about ? item.author.name : item.subject.name)}  ${dim(`[${item.status}]`)}`,
       `    ${item.body.slice(0, 160).replace(/\n/g, ' ')}`,
@@ -1476,8 +1614,12 @@ async function commandRecommendations(args: Args): Promise<number> {
     ].join('\n');
   const lines = [
     `${mine.pending} waiting for you`,
-    ...(mine.received.length > 0 ? ['', bold('About you'), ...mine.received.map((item) => line(item, true))] : []),
-    ...(mine.given.length > 0 ? ['', bold('You wrote'), ...mine.given.map((item) => line(item, false))] : []),
+    ...(mine.received.length > 0
+      ? ['', bold('About you'), ...mine.received.map((item) => line(item, true))]
+      : []),
+    ...(mine.given.length > 0
+      ? ['', bold('You wrote'), ...mine.given.map((item) => line(item, false))]
+      : []),
   ];
   return out(args, lines.join('\n'), mine);
 }
@@ -1549,7 +1691,9 @@ async function commandMessage(args: Args): Promise<number> {
   const slug = args.positional[0] ?? '';
   const body = args.positional.slice(1).join(' ');
   if (slug === '' || body === '') {
-    process.stderr.write('agenticjobs message <employer-slug> <text> [--candidate] [--job <slug>] [--as <employer>]\n');
+    process.stderr.write(
+      'agenticjobs message <employer-slug> <text> [--candidate] [--job <slug>] [--as <employer>]\n',
+    );
     return 1;
   }
   const candidate = flagBool(args, 'candidate');
@@ -1585,7 +1729,9 @@ async function commandInvoice(args: Args): Promise<number> {
   const id = args.positional[0] ?? '';
   const amount = args.positional[1] ?? '';
   if (id === '' || amount === '') {
-    process.stderr.write('agenticjobs invoice <thread-id> <amount-usd> [--currency <chain>] [--for <text>]\n');
+    process.stderr.write(
+      'agenticjobs invoice <thread-id> <amount-usd> [--currency <chain>] [--for <text>]\n',
+    );
     return 1;
   }
   const currency = flagString(args, 'currency');
@@ -1621,14 +1767,17 @@ async function commandPay(args: Args): Promise<number> {
   const result = await clientFor(args).payInvoice(id);
   const invoice = result.invoice;
   if (invoice.status === 'paid') return out(args, 'Already paid.', result);
-  if (invoice.payment === null) return out(args, 'No quote came back. Try again in a moment.', result);
+  if (invoice.payment === null)
+    return out(args, 'No quote came back. Try again in a moment.', result);
   return out(
     args,
     [
       `Pay at ${bold(invoice.payment.url)}`,
       ...(invoice.payment.amountCrypto === null
         ? []
-        : [`  ${invoice.payment.amountCrypto} ${invoice.currency} to ${invoice.payment.address ?? ''}`]),
+        : [
+            `  ${invoice.payment.amountCrypto} ${invoice.currency} to ${invoice.payment.address ?? ''}`,
+          ]),
       dim('  The quote lasts a few minutes.'),
     ].join('\n'),
     result,
@@ -1639,10 +1788,18 @@ async function commandBilling(args: Args): Promise<number> {
   const result = await clientFor(args).billing();
   if (!result.configured) return out(args, 'This board has no billing configured.', result);
   if (result.account === null) {
-    return out(args, `No CoinPay account connected. Connect one in a browser: ${result.connectUrl ?? ''}`, result);
+    return out(
+      args,
+      `No CoinPay account connected. Connect one in a browser: ${result.connectUrl ?? ''}`,
+      result,
+    );
   }
   if (!result.account.usable) {
-    return out(args, `The CoinPay connection has lapsed. Reconnect in a browser: ${result.connectUrl ?? ''}`, result);
+    return out(
+      args,
+      `The CoinPay connection has lapsed. Reconnect in a browser: ${result.connectUrl ?? ''}`,
+      result,
+    );
   }
   const wallets = result.account.wallets;
   return out(
@@ -1668,7 +1825,9 @@ async function commandAnnounce(args: Args): Promise<number> {
     // A board in its own listing is noise at best, so this refuses rather
     // than doing it. The flagship is both a board and the directory, which
     // makes this an easy command to run by accident.
-    process.stderr.write(`${directory} is this board. A board is not listed in its own directory.\n`);
+    process.stderr.write(
+      `${directory} is this board. A board is not listed in its own directory.\n`,
+    );
     return 1;
   }
   await announceOnce(directory, self);

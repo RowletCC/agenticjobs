@@ -55,6 +55,8 @@ export interface FederateOptions {
   /** Cap per instance, so one busy board cannot crowd out eleven others. */
   perInstance?: number;
   signal?: AbortSignal;
+  /** Forwarded to every fetch, for runs whose instances are deliberately local. */
+  allowPrivate?: boolean;
 }
 
 interface Target {
@@ -141,10 +143,16 @@ export async function federatedSearch(
           const payload = await fetchJson(`${target.search}?${params.toString()}`, {
             timeoutMs: remainingMs,
             ...(options.signal === undefined ? {} : { signal: options.signal }),
+            ...(options.allowPrivate === undefined ? {} : { allowPrivate: options.allowPrivate }),
           });
           if (Date.now() - started >= budgetMs) throw new FetchProblem(`${target.url} timed out`);
-          const page = payload as { items?: unknown; total?: unknown };
-          const items = Array.isArray(page.items) ? page.items : [];
+          const page = payload as { items?: unknown; total?: unknown } | null;
+          // A missing or malformed items field is a failed response, not an
+          // empty page. Otherwise the source appears healthy while its jobs
+          // disappear from the merged search results.
+          if (!Array.isArray(page?.items))
+            throw new FetchProblem(`${target.url} returned an invalid search page`);
+          const items = page.items;
           const rawForWindow = items.slice(0, perInstance - rawFetched);
           for (const item of rawForWindow) {
             const job = item as Job;

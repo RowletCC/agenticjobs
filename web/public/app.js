@@ -19,6 +19,7 @@
   }
 
   registerPasskeyButton();
+  pushButtons();
 
   var card = document.getElementById('passkey-card');
   var button = document.getElementById('passkey-login');
@@ -94,6 +95,114 @@
             note.textContent = problem && problem.message ? problem.message : 'That did not work.';
             note.hidden = false;
           }
+        });
+    });
+  }
+
+  /*
+   * Browser notifications, from the Notifications page. The button is hidden
+   * in the markup and shown only once the browser has said it can push, so
+   * nobody is offered a switch that does nothing. Subscribing needs a click:
+   * browsers refuse a permission prompt that a page raised on its own.
+   */
+  function pushButtons() {
+    var enable = document.getElementById('push-enable');
+    var disable = document.getElementById('push-disable');
+    var note = document.getElementById('push-error');
+    if (!enable || !disable) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+
+    var key = enable.getAttribute('data-key') || '';
+    if (!key) return;
+
+    function fail(message) {
+      if (!note) return;
+      note.textContent = message;
+      note.hidden = false;
+    }
+
+    function current() {
+      return navigator.serviceWorker.ready.then(function (registration) {
+        return registration.pushManager.getSubscription();
+      });
+    }
+
+    function reflect(subscription) {
+      enable.hidden = !!subscription;
+      disable.hidden = !subscription;
+      enable.disabled = false;
+      disable.disabled = false;
+    }
+
+    current().then(reflect).catch(function () { reflect(null); });
+
+    enable.addEventListener('click', function () {
+      enable.disabled = true;
+      if (note) note.hidden = true;
+      navigator.serviceWorker.ready
+        .then(function (registration) {
+          var options = { userVisibleOnly: true, applicationServerKey: decode(key) };
+          return registration.pushManager.subscribe(options).catch(function (problem) {
+            // A subscription left over from a different key (a board whose
+            // keys were regenerated) makes subscribe() refuse. Drop it and
+            // ask again, once.
+            if (!problem || problem.name !== 'InvalidStateError') throw problem;
+            return registration.pushManager.getSubscription()
+              .then(function (stale) { return stale ? stale.unsubscribe() : null; })
+              .then(function () { return registration.pushManager.subscribe(options); });
+          });
+        })
+        .then(function (subscription) {
+          return fetch('/api/v1/push/subscriptions', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(subscription.toJSON()),
+          }).then(function (response) {
+            if (!response.ok) throw new Error('The board did not accept this browser. Are you signed in?');
+            reflect(subscription);
+          });
+        })
+        .catch(function (problem) {
+          enable.disabled = false;
+          // Chromium reports a refused permission as AbortError
+          // "Registration failed - permission denied", not NotAllowedError.
+          if (problem && (problem.name === 'NotAllowedError' || Notification.permission === 'denied'
+            || /permission/i.test(problem.message || ''))) {
+            fail('Notifications are blocked for this site in the browser settings.');
+            return;
+          }
+          // "Registration failed - push service error": the browser could not
+          // reach its own push service, before this board is involved. Brave
+          // ships with that service switched off; ungoogled and some distro
+          // Chromium builds have none at all.
+          if (problem && problem.name === 'AbortError') {
+            fail(navigator.brave
+              ? 'Brave has push messaging switched off. Turn on "Use Google services for push messaging" in brave://settings/privacy, restart Brave, then try again.'
+              : 'This browser could not reach its push service, so it cannot receive notifications. Some Chromium builds ship without one; Chrome, Edge, Firefox and Safari work. Email notifications still arrive.');
+            return;
+          }
+          fail(problem && problem.message ? problem.message : 'That did not work.');
+        });
+    });
+
+    disable.addEventListener('click', function () {
+      disable.disabled = true;
+      current()
+        .then(function (subscription) {
+          if (!subscription) return null;
+          var endpoint = subscription.endpoint;
+          return subscription.unsubscribe().then(function () {
+            return fetch('/api/v1/push/subscriptions', {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ endpoint: endpoint }),
+            });
+          });
+        })
+        .then(function () { reflect(null); })
+        .catch(function (problem) {
+          disable.disabled = false;
+          fail(problem && problem.message ? problem.message : 'That did not work.');
         });
     });
   }

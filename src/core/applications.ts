@@ -90,7 +90,7 @@ export function validateApplication(
     }
     if (field.type === 'url') {
       try {
-        const url = new URL(value.includes('://') ? value : `https://${value}`);
+        const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`);
         if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('scheme');
         answers[field.name] = url.toString();
         continue;
@@ -194,6 +194,9 @@ export async function submitApplication(
   id: string,
   userId: string,
 ): Promise<boolean> {
+  // Same guard as decideApplication: the id arrives from a URL, and a string
+  // that is not a uuid makes Postgres raise rather than match nothing.
+  if (!UUID.test(id)) return false;
   const result = await pool.query(
     `update applications
         set status = 'new', submitted_at = now()

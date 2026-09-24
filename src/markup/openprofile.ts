@@ -23,7 +23,7 @@
  * The convention is docs/openprofile.md.
  */
 
-import type { OpenResume, ResumeContact } from './resume.ts';
+import { parseMarkdownLink, type OpenResume, type ResumeContact } from './resume.ts';
 
 export interface ProfileSource {
   /** The name shown in the directory, already cleaned. */
@@ -103,6 +103,15 @@ function identityLines(contact: ResumeContact[], resumeUrl: string): string[] {
   return lines;
 }
 
+/** Preserve query and fragment suffixes while retaining bare-path deduplication. */
+function accountKey(href: string): string {
+  const parsed = URL.parse(href);
+  if (parsed === null) return href;
+  return parsed.search === '' && parsed.hash === ''
+    ? parsed.href.replace(/\/+$/, '')
+    : parsed.href;
+}
+
 /** Every http(s) link the resume carries, as `- [label](url)`, deduplicated. */
 function accountLines(parsed: OpenResume): string[] {
   const seen = new Set<string>();
@@ -110,7 +119,7 @@ function accountLines(parsed: OpenResume): string[] {
   const add = (label: string, href: string): void => {
     // URL parsing normalises the scheme and host, preserving case in the
     // path, query and fragment where it can identify a different page.
-    const key = (URL.parse(href)?.href ?? href).replace(/\/+$/, '');
+    const key = accountKey(href);
     if (seen.has(key)) return;
     seen.add(key);
     lines.push(`- [${label.replace(/[[\]]/g, '')}](${href})`);
@@ -123,13 +132,12 @@ function accountLines(parsed: OpenResume): string[] {
     add(item.key, item.href);
   }
 
-  const links = parsed.sections.find((section) => section.kind === 'links');
-  if (links !== undefined) {
+  for (const links of parsed.sections.filter((section) => section.kind === 'links')) {
     for (const line of links.markdown.split('\n')) {
       const bullet = line.replace(/^\s*[-*]\s+/, '').trim();
-      const md = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/i.exec(bullet);
-      if (md !== null) {
-        add((md[1] ?? '').trim(), md[2] ?? '');
+      const md = parseMarkdownLink(bullet);
+      if (md !== null && isHttp(md.href)) {
+        add(md.label.trim(), md.href);
         continue;
       }
       const bare = /^(https?:\/\/\S+)/i.exec(bullet);

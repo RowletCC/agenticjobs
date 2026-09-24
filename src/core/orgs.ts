@@ -77,7 +77,7 @@ function normaliseUrl(value: unknown): string | null {
   const raw = clean(value, 500);
   if (raw === '') return null;
   try {
-    const url = new URL(raw.includes('://') ? raw : `https://${raw}`);
+    const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
     return url.toString();
   } catch {
@@ -137,11 +137,10 @@ export async function createOrg(
 /**
  * Change an employer's details, one field at a time.
  *
- * Only the fields that were sent move. An employer edited from a form that
- * only carries a name must not have its website silently cleared, and an
- * agent updating a description has no business also blanking a logo it never
- * read. `null` is therefore a value that clears a field and `undefined` is
- * "leave it", which is the distinction the whole signature exists to keep.
+ * Only the fields that were sent move. Writing only those columns also means
+ * two members can edit separate fields at the same time without one patch
+ * restoring stale values from its initial read. `null` clears a field and
+ * `undefined` means "leave it".
  *
  * The slug never moves, even when the name does. It is the URL that listings,
  * links and the directory all point at, and a rename is the most ordinary
@@ -169,11 +168,23 @@ export async function updateOrg(
       ? existing.description
       : clean(input.description, 2000) || null;
 
+  const values: unknown[] = [existing.id];
+  const assignments: string[] = [];
+  const set = (column: string, value: string | null): void => {
+    values.push(value);
+    assignments.push(`${column} = $${values.length}`);
+  };
+  if (input.name !== undefined) set('name', name);
+  if (input.website !== undefined) set('website', website);
+  if (input.description !== undefined) set('description', description);
+  if (input.logoUrl !== undefined) set('logo_url', logoUrl);
+  if (assignments.length === 0) return existing;
+
   const result = await pool.query<OrgRow>(
-    `update organisations set name = $2, website = $3, description = $4, logo_url = $5
+    `update organisations set ${assignments.join(', ')}
       where id = $1
       returning id, slug, name, website, logo_url, description, created_at`,
-    [existing.id, name, website, description, logoUrl],
+    values,
   );
   const row = result.rows[0];
   return row === undefined ? `No employer here with the slug ${slug}.` : toOrg(row);

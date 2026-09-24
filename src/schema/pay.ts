@@ -213,15 +213,23 @@ function readMoney(text: string, at: number): Money | null {
   let end = at + match[0].length;
   let currency: string | null = null;
   if (symbolBefore !== undefined) currency = SYMBOL_TO_CODE[symbolBefore] ?? null;
-  if (currency === null && codeBefore !== undefined) {
-    currency = codeFrom(codeBefore);
+  if (codeBefore !== undefined) {
+    const code = codeFrom(codeBefore);
     // A leading word that is not a code is not part of the amount at all.
-    if (currency === null) return null;
+    if (code === null || (currency !== null && currency !== code)) return null;
+    currency ??= code;
   }
-  if (currency === null && symbolAfter !== undefined) currency = SYMBOL_TO_CODE[symbolAfter] ?? null;
+  if (symbolAfter !== undefined) {
+    const code = SYMBOL_TO_CODE[symbolAfter] ?? null;
+    if (currency !== null && currency !== code) return null;
+    currency ??= code;
+  }
   if (codeAfter !== undefined) {
     const code = codeFrom(codeAfter);
     if (code !== null) {
+      // Every symbol or code attached to one amount must agree.
+      // Otherwise "USD 100 EUR" or "$100 EUR" silently loses a currency.
+      if (currency !== null && currency !== code) return null;
       currency ??= code;
     } else {
       // "per", "an", "fixed": give the word back to the rest of the line.
@@ -236,7 +244,9 @@ const REVENUE = /\b(rev(?:enue)?(?:\s+share)?|profit\s+share|of\s+(?:the\s+)?rev
 
 function parseRevenueShare(text: string): PayLine | string | null {
   if (!REVENUE.test(text) || !/%|percent/i.test(text)) return null;
-  const matches = [...text.matchAll(/\d+(?:\.\d+)?/g)];
+  // A leading decimal point is part of the number: .5% is 0.5%, not 5%.
+  // Keeping it in the match also exposes the minus in -.5 to the sign check.
+  const matches = [...text.matchAll(/(?:\d+(?:\.\d+)?|\.\d+)/g)];
   if (matches.length === 0) return 'A revenue share needs a percentage: "10% revenue share".';
   const firstMatch = matches[0]!;
   const secondMatch = matches[1];
@@ -420,7 +430,10 @@ function parseLine(text: string): PayLine | string {
     if (/^(?:project|job|engagement)$/i.test(what)) return { ...base, type: 'fixed', unit: null };
     if (/^tasks?$/i.test(what)) return { ...base, type: 'per_task', unit: 'task' };
     if (what.length > UNIT_MAX) return `The unit in "${text}" is too long: at most ${UNIT_MAX} characters.`;
-    return { ...base, type: 'per_unit', unit: what };
+    // The unit is free text that lands in pay_lines untouched: give it the
+    // same scrub as the object form's unit field so a surrogate or control
+    // character cannot make the row uninsertable.
+    return { ...base, type: 'per_unit', unit: cleanText(what, UNIT_MAX) || null };
   }
 
   return `Could not read "${rest}" in "${text}". Write it like ${PAY_LINE_EXAMPLES}.`;
@@ -587,7 +600,17 @@ function truthy(value: unknown): boolean {
 
 function cleanText(value: unknown, max: number): string {
   if (typeof value !== 'string') return '';
-  return value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  const flat = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // A JSON client can send an unpaired surrogate as a \ud800 escape:
+  // it survives the control strip and Postgres refuses the whole row. The cap
+  // counts UTF-16 units and can also sever a real pair, so the tail needs the
+  // same check clean() gives its own truncation.
+  const whole = flat.replace(
+    /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g,
+    '',
+  );
+  const capped = whole.slice(0, max);
+  return /^[\ud800-\udbff]$/.test(capped.slice(-1)) ? capped.slice(0, -1) : capped;
 }
 
 /** A ticker typed in any case comes out in capitals; a rail stays as typed. */
@@ -628,6 +651,21 @@ function lineFromObject(value: Record<string, unknown>): PayLine | string {
     currency,
     unit: type === 'per_task' ? (unit ?? 'task') : type === 'per_unit' ? unit : null,
   };
+}
+
+/**
+ * A settlement clause standing on its own - "settled in SOL" as its own line
+ * or "via bank transfer" as its own array entry - names the rail for the
+ * whole pay, not a price. A person splitting a listing into one clause per
+ * line writes it this way, and the `;` the multi-line string is split on is
+ * the same mark the clause itself tolerates in front of it.
+ */
+function standaloneMethod(item: unknown): string | null {
+  if (typeof item !== 'string') return null;
+  const settled = SETTLED.exec(item.trim());
+  if (settled === null || settled.index !== 0) return null;
+  const named = normaliseMethod(settled[1]);
+  return named !== null && (isKnownCurrency(named) || isRail(named)) ? named : null;
 }
 
 /**
@@ -673,6 +711,11 @@ export function normalisePay(input: Record<string, unknown>): Pay | string {
     if (typeof item === 'object' && item !== null) {
       const object = item as Record<string, unknown>;
       if (typeof object['text'] === 'string') {
+        const clause = standaloneMethod(object['text']);
+        if (clause !== null) {
+          namedMethod ??= clause;
+          continue;
+        }
         const read = readPayLine(object['text']);
         if (typeof read === 'string') return read;
         lines.push(read.line);
@@ -682,6 +725,11 @@ export function normalisePay(input: Record<string, unknown>): Pay | string {
       const line = lineFromObject(object);
       if (typeof line === 'string') return line;
       lines.push(line);
+      continue;
+    }
+    const clause = standaloneMethod(item);
+    if (clause !== null) {
+      namedMethod ??= clause;
       continue;
     }
     const read = readPayLine(item);

@@ -139,7 +139,15 @@ function otherParty(rows: ParticipantRow[], viewerId: string): Party {
 
 function preview(body: string): string {
   const line = body.replace(/\s+/g, ' ').trim();
-  return line.length > 120 ? `${line.slice(0, 117)}...` : line;
+  if (line.length <= 120) return line;
+  let capped = line.slice(0, 117);
+  // The cap counts UTF-16 units, so it can land between the halves of a
+  // surrogate pair and leave the high half dangling. That half is invalid
+  // UTF-8 to the database - the threads insert rejects it - and renders as
+  // U+FFFD wherever the preview is shown. Drop it, as clean() does for its
+  // own cap.
+  if (/^[\uD800-\uDBFF]$/.test(capped.slice(-1))) capped = capped.slice(0, -1);
+  return `${capped}...`;
 }
 
 async function isParticipant(pool: pg.Pool, threadId: string, userId: string): Promise<boolean> {
@@ -187,16 +195,23 @@ export async function startThread(
   const jobId = input.jobId ?? null;
 
   // Find the existing conversation between these parties about this listing.
+  // "These parties" includes which identity the sender is using: a member of
+  // two employers has one row per thread, and `me.org_id` says whether that
+  // row is them personally or them speaking for one employer. Matching only
+  // on `me.user_id` would deliver a message written as Org B into a thread
+  // with Org A, shown to the other side as Org A and readable by Org A's
+  // members - and a personal message into an employer's thread the same way.
   const existing = await pool.query<{ id: string }>(
     `select t.id from threads t
       where t.job_id is not distinct from $3
         and exists (select 1 from thread_participants me
-                     where me.thread_id = t.id and me.user_id = $1)
+                     where me.thread_id = t.id and me.user_id = $1
+                       and me.org_id is not distinct from $4)
         and exists (select 1 from thread_participants them
                      where them.thread_id = t.id
                        and ${to.kind === 'candidate' ? 'them.user_id = $2 and them.org_id is null' : 'them.org_id = $2'})
       order by t.last_message_at desc limit 1`,
-    [senderId, to.kind === 'candidate' ? to.userId : to.orgId, jobId],
+    [senderId, to.kind === 'candidate' ? to.userId : to.orgId, jobId, asOrg],
   );
   const found = existing.rows[0];
   if (found !== undefined) {

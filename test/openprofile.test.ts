@@ -182,6 +182,65 @@ test('Links accounts with case-sensitive query values remain distinct', () => {
   ]);
 });
 
+test('accounts include links from every Links section', () => {
+  const md = openProfileFromResume(
+    source(`# Ada Lovelace
+
+## Links
+
+- [Code](https://github.com/ada)
+
+## Projects
+
+- Analytical engine
+
+## Links
+
+- [Writing](https://ada.example/blog)
+`),
+  );
+  assert.deepEqual(md.split('\n').filter((line) => line.startsWith('- [')), [
+    '- [Code](https://github.com/ada)',
+    '- [Writing](https://ada.example/blog)',
+  ]);
+});
+
+test('query and fragment suffix slashes remain part of account identity', () => {
+  const md = openProfileFromResume(
+    source(`# Ada Lovelace
+
+## Links
+
+- [Query](https://portfolio.example/profile?folder=notes)
+- [Query slash](https://portfolio.example/profile?folder=notes/)
+- [Fragment](https://portfolio.example/profile#notes)
+- [Fragment slash](https://portfolio.example/profile#notes/)
+- [Both](https://portfolio.example/profile?folder=notes#section)
+- [Both slash](https://portfolio.example/profile?folder=notes#section/)
+`),
+  );
+  assert.deepEqual(md.split('\n').filter((line) => line.startsWith('- [')), [
+    '- [Query](https://portfolio.example/profile?folder=notes)',
+    '- [Query slash](https://portfolio.example/profile?folder=notes/)',
+    '- [Fragment](https://portfolio.example/profile#notes)',
+    '- [Fragment slash](https://portfolio.example/profile#notes/)',
+    '- [Both](https://portfolio.example/profile?folder=notes#section)',
+    '- [Both slash](https://portfolio.example/profile?folder=notes#section/)',
+  ]);
+});
+
+test('path slashes before a query or fragment retain their existing identities', () => {
+  const urls = [
+    'https://portfolio.example/profile?item=1',
+    'https://portfolio.example/profile/?item=1',
+    'https://portfolio.example/profile#section',
+    'https://portfolio.example/profile/#section',
+  ];
+  const links = urls.map((url, index) => `- [Page ${index}](${url})`);
+  const md = openProfileFromResume(source(`# Ada\n\n## Links\n\n${links.join('\n')}\n`));
+  assert.deepEqual(md.split('\n').filter((line) => line.startsWith('- [')), links);
+});
+
 test('scheme and host casing still deduplicate accounts across contact and Links', () => {
   const md = openProfileFromResume(
     source(`# Ada Lovelace
@@ -196,4 +255,28 @@ test('scheme and host casing still deduplicate accounts across contact and Links
   assert.deepEqual(md.split('\n').filter((line) => line.startsWith('- [')), [
     '- [Portfolio](HTTPS://PORTFOLIO.EXAMPLE/Work)',
   ]);
+});
+
+test('parentheses in account URLs survive contact and Links parsing', () => {
+  const md = openProfileFromResume(
+    source(`# Ada Lovelace
+
+- [Portfolio](https://portfolio.example/work(2026))
+
+## Links
+
+- [Paper](https://papers.example/review(2025))
+`),
+  );
+  assert.deepEqual(md.split('\n').filter((line) => line.startsWith('- [')), [
+    '- [Portfolio](https://portfolio.example/work(2026))',
+    '- [Paper](https://papers.example/review(2025))',
+  ]);
+});
+
+test('an optional link title is not included in an account URL', () => {
+  const md = openProfileFromResume(
+    source('# Ada\n\n## Links\n\n- [Paper](https://papers.example/review(2025) "Draft")\n'),
+  );
+  assert.ok(md.includes('- [Paper](https://papers.example/review(2025))'), md);
 });

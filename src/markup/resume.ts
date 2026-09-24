@@ -125,8 +125,18 @@ function kindOf(title: string): string {
 const PRESENT = /\b(present|now|current|ongoing)\b/i;
 
 export function parseResume(source: string): OpenResume {
+  return parseDocument(source).resume;
+}
+
+/** The original body, with only lines promoted to the rendered header removed. */
+export function resumeBodyMarkdown(source: string): string {
+  return parseDocument(source).body;
+}
+
+function parseDocument(source: string): { resume: OpenResume; body: string } {
   const markdown = source.replace(/\r\n?/g, '\n').trim();
   const lines = markdown.split('\n');
+  const headerLines = new Set<number>();
   const warnings: string[] = [];
 
   let name: string | null = null;
@@ -138,6 +148,7 @@ export function parseResume(source: string): OpenResume {
   let entry: ResumeEntry | null = null;
   let seenH1 = false;
   let inPreamble = false;
+  let fenceEnd: RegExp | null = null;
 
   const flushEntry = (): void => {
     if (entry !== null && section !== null) {
@@ -155,7 +166,26 @@ export function parseResume(source: string): OpenResume {
     section = null;
   };
 
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
+    // Code examples may contain every resume marker. Keep the block in its
+    // current body without interpreting headings, contacts, roles or bullets.
+    const opening: RegExpExecArray | null = fenceEnd === null ? /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line) : null;
+    const marker: string = opening?.[1] ?? '';
+    const opensFence = opening !== null &&
+      (marker.startsWith('~') || !(opening[2] ?? '').includes('`'));
+    if (fenceEnd !== null || opensFence) {
+      if (fenceEnd !== null) {
+        if (fenceEnd.test(line)) fenceEnd = null;
+      } else {
+        // A shorter marker, a different character, or trailing text belongs
+        // to the example rather than closing it.
+        fenceEnd = new RegExp(`^ {0,3}${marker[0]}{${marker.length},}[ \\t]*$`);
+      }
+      if (entry !== null) entry.markdown += `${line}\n`;
+      else if (section !== null) section.markdown += `${line}\n`;
+      continue;
+    }
+
     const h1 = /^#\s+(.+?)\s*(?:(?<=[ \t])#+)?\s*$/.exec(line);
     if (h1 !== null) {
       if (seenH1) {
@@ -164,6 +194,7 @@ export function parseResume(source: string): OpenResume {
         name = (h1[1] ?? '').trim();
         seenH1 = true;
         inPreamble = true;
+        headerLines.add(index);
       }
       continue;
     }
@@ -199,13 +230,17 @@ export function parseResume(source: string): OpenResume {
       const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
       if (bullet !== null) {
         const field = parseContact(bullet[1] ?? '');
-        if (field !== null) contact.push(field);
+        if (field !== null) {
+          contact.push(field);
+          headerLines.add(index);
+        }
         continue;
       }
       if (line.trim() !== '' && headline === null && !line.startsWith('#')) {
         // A single prose line under the name, before any section, reads as a
         // headline on every resume that has one.
         headline = cleanHeadline(line);
+        if (headline !== null) headerLines.add(index);
       }
       continue;
     }
@@ -239,7 +274,43 @@ export function parseResume(source: string): OpenResume {
     warnings.push('No experience section found. Employers filter on it.');
   }
 
-  return { name, headline, contact, sections, markdown, warnings };
+  return {
+    resume: { name, headline, contact, sections, markdown, warnings },
+    body: lines.filter((_, index) => !headerLines.has(index)).join('\n'),
+  };
+}
+
+/** Read a Markdown link without mistaking a parenthesis in its URL for the closing one. */
+export function parseMarkdownLink(text: string): { label: string; href: string; end: number } | null {
+  const opening = /^\[([^\]]+)\]\(/.exec(text);
+  if (opening === null) return null;
+  let href = '';
+  let depth = 0;
+  for (let index = opening[0].length; index < text.length; index += 1) {
+    const character = text[index] ?? '';
+    if (character === '\\' && /[()]/.test(text[index + 1] ?? '')) {
+      href += text[++index];
+    } else if (character === '(') {
+      depth += 1;
+      href += character;
+    } else if (character === ')') {
+      if (depth > 0) {
+        depth -= 1;
+        href += character;
+      } else {
+        return href === '' ? null : { label: opening[1] ?? '', href, end: index };
+      }
+    } else if (/\s/.test(character)) {
+      // An optional link title follows the URL; it is not part of the account.
+      const title = /^\s+"[^"]*"\s*\)/.exec(text.slice(index));
+      return title === null || href === ''
+        ? null
+        : { label: opening[1] ?? '', href, end: index + title[0].length - 1 };
+    } else {
+      href += character;
+    }
+  }
+  return null;
 }
 
 /** `- **Email**: a@b.com`, `- Email: a@b.com`, `- [GitHub](https://...)`. */
@@ -247,20 +318,28 @@ function parseContact(raw: string): ResumeContact | null {
   const text = raw.trim();
   if (text === '') return null;
 
-  const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(text);
-  if (link !== null) {
-    return { key: (link[1] ?? '').trim(), value: (link[1] ?? '').trim(), href: link[2] ?? null };
+  const link = parseMarkdownLink(text);
+  if (link !== null && link.end === text.length - 1) {
+    return { key: link.label.trim(), value: link.label.trim(), href: link.href };
   }
 
-  const pair = /^\*{0,2}([^:*]{1,40})\*{0,2}\s*:\s*(.+)$/.exec(text);
+  // "- **Tel:** +49" closes the bold after the colon, and "- **Tel: +49**"
+  // wraps the whole bullet. Both are common ways to write the same field, and
+  // either leaves a `**` inside the value — where it is treated as data,
+  // channel detection fails, and the line slips past redaction still carrying
+  // the number or URL it was meant to withhold.
+  const unwrapped = /^(\*{1,2})([^*][\s\S]*?)\1$/.exec(text);
+  const body = unwrapped?.[2] ?? text;
+  const boldPair = /^\*{1,2}([^:*]{1,40}?):\*{1,2}\s*(.+)$/.exec(body);
+  const pair = boldPair ?? /^\*{0,2}([^:*]{1,40})\*{0,2}\s*:\s*(.+)$/.exec(body);
   if (pair === null) {
     return { key: 'note', value: stripMarkdown(text), href: hrefFor(stripMarkdown(text)) };
   }
   const key = (pair[1] ?? '').trim();
   const rawValue = (pair[2] ?? '').trim();
-  const inner = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(rawValue);
-  if (inner !== null) {
-    return { key, value: (inner[1] ?? '').trim(), href: inner[2] ?? null };
+  const inner = parseMarkdownLink(rawValue);
+  if (inner !== null && inner.end === rawValue.length - 1) {
+    return { key, value: inner.label.trim(), href: inner.href };
   }
   const value = stripMarkdown(rawValue);
   return { key, value, href: hrefFor(value) };
@@ -322,7 +401,13 @@ export function resumeSearchText(resume: OpenResume): string {
   for (const section of resume.sections) {
     parts.push(section.title, section.markdown);
     for (const entry of section.entries) {
-      parts.push(entry.title, entry.place ?? '', entry.subtitle ?? '', ...entry.highlights);
+      parts.push(
+        entry.title,
+        entry.place ?? '',
+        entry.markdown.trim() === ''
+          ? [entry.subtitle ?? '', ...entry.highlights].filter((part) => part !== '').join('\n')
+          : entry.markdown,
+      );
     }
   }
   return parts.filter((part) => part !== '').join('\n');
@@ -372,6 +457,17 @@ export const CONTACT_WITHHELD = 'shared with signed-in members';
 const EMAIL_IN_TEXT = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
 /**
+ * A diallable number written into prose. The contact block withholds `tel:`
+ * fields already; a number in a sentence is the same channel and gets the
+ * same scrub. Three shapes: an international `+` number, a parenthesised
+ * area code, and the plain 3-3-4 split. Anything looser - "2019-2024",
+ * "06 12 34 56 78" - is left alone rather than guessed at, because a wrong
+ * redaction corrupts a document its owner cannot see break.
+ */
+const PHONE_IN_TEXT =
+  /(?:\+\d[\d ()./-]{6,}\d|\(\d{3}\)[\d ()./-]{5,}\d|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b)/g;
+
+/**
  * The contact block, minus every way to actually reach the person.
  *
  * A published resume is a document its owner chose to make public, but the
@@ -406,22 +502,17 @@ export function redactContactChannels(source: string): { markdown: string; redac
   let redacted = false;
 
   for (const line of markdown.split('\n')) {
+    // Headings only set flags here; the line itself still falls through to the
+    // address check below. Pushing a heading verbatim let a name or a section
+    // title carry an address straight past the redaction.
     if (/^#\s+(.+?)\s*#*\s*$/.test(line)) {
       if (!seenH1) {
         seenH1 = true;
         inPreamble = true;
       }
-      out.push(line);
-      continue;
-    }
-
-    if (/^##\s+(.+?)\s*#*\s*$/.test(line)) {
+    } else if (/^##\s+(.+?)\s*#*\s*$/.test(line)) {
       inPreamble = false;
-      out.push(line);
-      continue;
-    }
-
-    if (inPreamble) {
+    } else if (inPreamble) {
       const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
       if (bullet !== null) {
         const field = parseContact(bullet[1] ?? '');
@@ -432,10 +523,9 @@ export function redactContactChannels(source: string): { markdown: string; redac
           redacted = true;
           continue;
         }
-        out.push(line);
-        continue;
+        // A bullet with no channel to withhold is still prose: an address in
+        // "Note: mail me at <address>" is scrubbed like any other line.
       }
-
     }
 
     // An address anywhere in the document, not only in the contact block.
@@ -459,7 +549,9 @@ export function redactContactChannels(source: string): { markdown: string; redac
     // global, and a global regex's `test` advances `lastIndex` between calls,
     // so it returns false on matches it has already walked past. That is how a
     // redaction skips lines at random and still passes a one-line unit test.
-    const scrubbed = line.replace(EMAIL_IN_TEXT, CONTACT_WITHHELD);
+    const scrubbed = line
+      .replace(EMAIL_IN_TEXT, CONTACT_WITHHELD)
+      .replace(PHONE_IN_TEXT, CONTACT_WITHHELD);
     if (scrubbed !== line) {
       out.push(scrubbed);
       redacted = true;

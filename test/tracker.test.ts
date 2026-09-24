@@ -85,6 +85,12 @@ test('parser rejects foreign currencies, nonfinite or negative money, extra meta
   assert.throws(() => parseEvents([event('a', 'receipt', 1, { at: 'not-a-date' })], 'USD'));
 });
 
+test('parser rejects calendar-invalid event timestamps instead of moving them to another date', () => {
+  assert.throws(() =>
+    parseEvents([event('invalid-date', 'receipt', 1, { at: '2026-02-30T12:00:00.000Z' })], 'USD'),
+  );
+});
+
 const costReport = {
   since: 1700000000000,
   sessions: [

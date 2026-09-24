@@ -92,6 +92,8 @@ function classify(extension: string, mime: string, bytes: Buffer): Kind {
 }
 
 function looksTextual(bytes: Buffer): boolean {
+  // UTF-16 text contains NUL bytes even when every character is printable.
+  if (utf16Encoding(bytes) !== null) return true;
   const sample = bytes.subarray(0, 4096);
   let control = 0;
   for (const byte of sample) {
@@ -102,9 +104,18 @@ function looksTextual(bytes: Buffer): boolean {
 }
 
 function decodeText(bytes: Buffer): string {
+  const encoding = utf16Encoding(bytes);
+  if (encoding !== null) return new TextDecoder(encoding).decode(bytes);
   // A BOM left in place shows up as a stray character in the first heading.
   const text = bytes.toString('utf8');
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+/** Word and other desktop editors can save Unicode text in either byte order. */
+function utf16Encoding(bytes: Buffer): 'utf-16le' | 'utf-16be' | null {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return 'utf-16le';
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return 'utf-16be';
+  return null;
 }
 
 /**
@@ -192,11 +203,11 @@ export async function docxToMarkdown(bytes: Buffer): Promise<ImportResult> {
 
   const document = xml.toString('utf8');
   const out: string[] = [];
-  const paragraphs = document.match(/<w:p[ >][\s\S]*?<\/w:p>|<w:p\/>/g) ?? [];
+  const paragraphs = document.match(/<w:p[\t\r\n >][\s\S]*?<\/w:p>|<w:p\/>/g) ?? [];
 
   for (const paragraph of paragraphs) {
     const style = /<w:pStyle[^>]*w:val="([^"]+)"/.exec(paragraph)?.[1] ?? '';
-    const isList = /<w:numPr[ >]/.test(paragraph);
+    const isList = /<w:numPr[\t\r\n >]/.test(paragraph);
     const text = runsToText(paragraph).trim();
 
     if (text === '') {
@@ -220,7 +231,7 @@ export async function docxToMarkdown(bytes: Buffer): Promise<ImportResult> {
     out.push(text);
   }
 
-  const tables = (document.match(/<w:tbl[ >]/g) ?? []).length;
+  const tables = (document.match(/<w:tbl[\t\r\n >]/g) ?? []).length;
   if (tables > 0) {
     // Word tables are commonly used purely for two-column layout, so turning
     // them into Markdown tables produces something worse than flat text.
@@ -236,17 +247,22 @@ export async function docxToMarkdown(bytes: Buffer): Promise<ImportResult> {
 
 function runsToText(paragraph: string): string {
   let out = '';
-  const runs = paragraph.match(/<w:r[ >][\s\S]*?<\/w:r>/g) ?? [];
+  const runs = paragraph.match(/<w:r[\t\r\n >][\s\S]*?<\/w:r>/g) ?? [];
   for (const run of runs) {
     // Text, tabs and breaks can alternate inside one run. Run boundaries
     // must not change the text that arrives in the resume editor.
+    // A self-closing text element must not consume the next text or control.
     const pieces = [
-      ...run.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:(tab|br|cr)\b[^>]*>/g),
+      ...run.matchAll(/<w:t(?:\s[^>]*)?(?<!\/)>([\s\S]*?)<\/w:t>|<w:(tab|br|cr|noBreakHyphen)\b[^>]*>/g),
     ];
     let text = pieces
-      .map((piece) => (piece[1] !== undefined ? decodeXml(piece[1]) : piece[2] === 'tab' ? '  ' : '\n'))
+      .map((piece) => {
+        if (piece[1] !== undefined) return decodeXml(piece[1]);
+        if (piece[2] === 'noBreakHyphen') return '\u2011';
+        return piece[2] === 'tab' ? '  ' : '\n';
+      })
       .join('');
-    if (!pieces.some((piece) => (piece[1] ?? '') !== '')) {
+    if (!pieces.some((piece) => (piece[1] ?? '') !== '' || piece[2] === 'noBreakHyphen')) {
       // Controls alone do not need emphasis markers around them.
       out += text;
       continue;
@@ -274,9 +290,16 @@ function decodeXml(value: string): string {
   const named: Record<string, string> = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
   // One pass keeps a decoded ampersand from starting another reference.
   return value.replace(/&(#x[0-9a-fA-F]+|#\d+|lt|gt|quot|apos|amp);/g, (whole, entity: string) => {
-    if (entity.startsWith('#x')) return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
-    if (entity.startsWith('#')) return String.fromCodePoint(Number(entity.slice(1)));
-    return named[entity] ?? whole;
+    if (!entity.startsWith('#')) return named[entity] ?? whole;
+    // HTML replaces null, surrogates and values outside Unicode with U+FFFD.
+    // In particular, a document must not make fromCodePoint throw and kill
+    // an otherwise readable import.
+    const code = entity.startsWith('#x')
+      ? Number.parseInt(entity.slice(2), 16)
+      : Number(entity.slice(1));
+    if (!Number.isFinite(code)) return whole;
+    if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return '\uFFFD';
+    return String.fromCodePoint(code);
   });
 }
 

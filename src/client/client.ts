@@ -8,10 +8,73 @@
  */
 
 import type { Job, JobPage, JobQuery, Organisation } from '../schema/index.ts';
-import { queryToParams } from '../schema/query.ts';
+import { EMPTY_QUERY, queryToParams } from '../schema/query.ts';
 import type { InstanceDescriptor, InstanceListing } from '../schema/instance.ts';
 import { WELL_KNOWN_PATH } from '../schema/instance.ts';
 import { normaliseServer } from './config.ts';
+
+/** An agent as the API returns it. */
+export interface AgentRecord {
+  id: string;
+  slug: string;
+  name: string;
+  skills: string[];
+  description: string;
+  url: string | null;
+  public: boolean;
+  operator: { slug: string; name: string } | null;
+  operates: { slug: string; name: string }[];
+  owner: { name: string | null; candidateSlug: string | null };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentInputRecord {
+  name?: string;
+  skills?: string[] | string;
+  description?: string;
+  url?: string;
+  operator?: string;
+  public?: boolean;
+}
+
+export interface WatchRecord {
+  id: string;
+  query: JobQuery;
+  label: string;
+  email: boolean;
+  path: string;
+  createdAt: string;
+  lastNotifiedAt: string | null;
+}
+
+export interface NotificationRecord {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  url: string | null;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface RankingsRecord {
+  period: string;
+  boards: {
+    id: string;
+    label: string;
+    unit: string;
+    total: number;
+    rows: {
+      rank: number | null;
+      slug: string;
+      name: string;
+      value: number;
+      display: string;
+      url: string;
+    }[];
+  }[];
+}
 
 export class ApiError extends Error {
   // Written out rather than declared as constructor parameters: parameter
@@ -40,6 +103,15 @@ export interface ClientOptions {
   fetch?: typeof fetch;
   timeoutMs?: number;
   userAgent?: string;
+}
+
+export interface RequestOptions {
+  /**
+   * Sent as `Idempotency-Key`. A create repeated under the same key returns
+   * the row the first attempt made, so a request that carries one may be
+   * retried after a timeout.
+   */
+  idempotencyKey?: string;
 }
 
 export interface RecommendationLike {
@@ -117,8 +189,9 @@ export class BoardClient {
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
+    options: RequestOptions = {},
   ): Promise<T> {
-    const { body: parsed } = await this.requestWithStatus<T>(method, path, body);
+    const { body: parsed } = await this.requestWithStatus<T>(method, path, body, options);
     return parsed;
   }
 
@@ -133,15 +206,19 @@ export class BoardClient {
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
+    options: RequestOptions = {},
   ): Promise<{ status: number; body: T }> {
     try {
-      return await this.requestOnce<T>(method, path, body);
+      return await this.requestOnce<T>(method, path, body, options);
     } catch (error) {
       // A hosted board that has been idle can miss a single client timeout
       // (curl's default 15s from a distant region, #36) and then answer in
-      // about a second. GET is safe to repeat; POST is not.
-      if (method === 'GET' && error instanceof ApiError && error.code === 'timeout') {
-        return this.requestOnce<T>(method, path, body);
+      // about a second. GET is safe to repeat. A POST is not, unless it
+      // carries an idempotency key: then the board answers a repeat with
+      // the row the first attempt made, and repeating is the point.
+      const repeatable = method === 'GET' || options.idempotencyKey !== undefined;
+      if (repeatable && error instanceof ApiError && error.code === 'timeout') {
+        return this.requestOnce<T>(method, path, body, options);
       }
       throw error;
     }
@@ -151,6 +228,7 @@ export class BoardClient {
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
+    options: RequestOptions = {},
   ): Promise<{ status: number; body: T }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -163,6 +241,9 @@ export class BoardClient {
           'user-agent': this.userAgent,
           ...(this.token === null ? {} : { authorization: `Bearer ${this.token}` }),
           ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(options.idempotencyKey === undefined
+            ? {}
+            : { 'idempotency-key': options.idempotencyKey }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
@@ -181,7 +262,8 @@ export class BoardClient {
       }
 
       if (!response.ok) {
-        const error = (parsed as { error?: { message?: string; code?: string; fields?: [] } })?.error;
+        const error = (parsed as { error?: { message?: string; code?: string; fields?: [] } })
+          ?.error;
         throw new ApiError(
           error?.message ?? `${this.server} answered ${response.status}.`,
           response.status,
@@ -213,18 +295,17 @@ export class BoardClient {
 
   async search(query: Partial<JobQuery>): Promise<JobPage<Job> & { query: JobQuery }> {
     const params = queryToParams({
-      q: null,
-      employmentType: null,
-      workplace: null,
-      seniority: null,
-      agentPolicy: null,
-      tags: [],
-      salaryMin: null,
-      org: null,
-      sort: 'recent',
-      limit: 25,
-      offset: 0,
+      ...EMPTY_QUERY,
       ...query,
+      // Callers often forward optional filters as object properties. An
+      // explicitly undefined value must behave like an omitted field rather
+      // than overwrite these defaults (queryToParams reads tags.length and
+      // serializes the pagination fields directly).
+      tags: query.tags ?? EMPTY_QUERY.tags,
+      salaryMin: query.salaryMin ?? EMPTY_QUERY.salaryMin,
+      sort: query.sort ?? EMPTY_QUERY.sort,
+      limit: query.limit ?? EMPTY_QUERY.limit,
+      offset: query.offset ?? EMPTY_QUERY.offset,
     });
     const search = params.toString();
     return this.request('GET', `/api/v1/jobs${search === '' ? '' : `?${search}`}`);
@@ -302,8 +383,21 @@ export class BoardClient {
     return this.request('DELETE', `/api/v1/orgs/${encodeURIComponent(slug)}`);
   }
 
-  async postJob(input: Record<string, unknown>): Promise<{ job: Job }> {
-    return this.request('POST', '/api/v1/jobs', input);
+  /**
+   * Post a listing.
+   *
+   * Every call carries an idempotency key, the caller's or a fresh one, so a
+   * timeout is retried and a response lost on the way back does not leave a
+   * second draft behind (the question asked on r/coolgithubprojects). Pass
+   * your own key to make a re-run of a whole script safe too; `replayed` is
+   * true on the answer when the board had already made the listing.
+   */
+  async postJob(
+    input: Record<string, unknown>,
+    options: { idempotencyKey?: string } = {},
+  ): Promise<{ job: Job; replayed?: boolean }> {
+    const idempotencyKey = options.idempotencyKey ?? crypto.randomUUID();
+    return this.request('POST', '/api/v1/jobs', input, { idempotencyKey });
   }
 
   /** Import a job from a URL, or refresh the listing already imported from it. */
@@ -332,7 +426,13 @@ export class BoardClient {
   // --- updates ----------------------------------------------------------
 
   async updates(scope: { org?: string; candidate?: string; following?: boolean } = {}): Promise<{
-    items: { id: string; body: string; link: string | null; createdAt: string; author: { kind: string; name: string; slug: string | null } }[];
+    items: {
+      id: string;
+      body: string;
+      link: string | null;
+      createdAt: string;
+      author: { kind: string; name: string; slug: string | null };
+    }[];
   }> {
     const params = new URLSearchParams();
     if (scope.org !== undefined && scope.org !== '') params.set('org', scope.org);
@@ -360,6 +460,90 @@ export class BoardClient {
         ? `/api/v1/orgs/${encodeURIComponent(target.org)}/follow`
         : `/api/v1/candidates/${encodeURIComponent(target.candidate ?? '')}/follow`;
     return this.request(following ? 'POST' : 'DELETE', path);
+  }
+
+  // --- agents ---------------------------------------------------------------
+
+  async agents(
+    options: { skill?: string; limit?: number } = {},
+  ): Promise<{ items: AgentRecord[]; total: number }> {
+    const params = new URLSearchParams();
+    if (options.skill) params.set('skill', options.skill);
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    const search = params.toString();
+    return this.request('GET', `/api/v1/agents${search === '' ? '' : `?${search}`}`);
+  }
+
+  async myAgents(): Promise<{ items: AgentRecord[]; total: number }> {
+    return this.request('GET', '/api/v1/me/agents');
+  }
+
+  async agent(slug: string): Promise<{ agent: AgentRecord }> {
+    return this.request('GET', `/api/v1/agents/${encodeURIComponent(slug)}`);
+  }
+
+  async registerAgent(input: AgentInputRecord): Promise<{ agent: AgentRecord; url: string }> {
+    return this.request('POST', '/api/v1/agents', input);
+  }
+
+  async updateAgent(slug: string, input: AgentInputRecord): Promise<{ agent: AgentRecord }> {
+    return this.request('PATCH', `/api/v1/agents/${encodeURIComponent(slug)}`, input);
+  }
+
+  /** Name `slug` as the operator of `agents`. */
+  async setOperator(slug: string, agents: string[]): Promise<{ agent: AgentRecord }> {
+    return this.request('POST', `/api/v1/agents/${encodeURIComponent(slug)}/operates`, { agents });
+  }
+
+  async deleteAgent(slug: string): Promise<{ deleted: boolean }> {
+    return this.request('DELETE', `/api/v1/agents/${encodeURIComponent(slug)}`);
+  }
+
+  // --- watches and notifications -------------------------------------------
+
+  async watches(): Promise<{ items: WatchRecord[]; total: number }> {
+    return this.request('GET', '/api/v1/watches');
+  }
+
+  async watch(
+    query: Partial<JobQuery>,
+    options: { email?: boolean } = {},
+  ): Promise<{ watch: WatchRecord; created: boolean }> {
+    return this.request('POST', '/api/v1/watches', {
+      ...query,
+      ...(options.email === undefined ? {} : { email: options.email }),
+    });
+  }
+
+  async unwatch(id: string): Promise<{ deleted: boolean }> {
+    return this.request('DELETE', `/api/v1/watches/${encodeURIComponent(id)}`);
+  }
+
+  async notifications(
+    options: { unreadOnly?: boolean; limit?: number } = {},
+  ): Promise<{ items: NotificationRecord[]; unread: number }> {
+    const params = new URLSearchParams();
+    if (options.unreadOnly) params.set('unread', 'true');
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    const search = params.toString();
+    return this.request('GET', `/api/v1/notifications${search === '' ? '' : `?${search}`}`);
+  }
+
+  async markNotificationsRead(id?: string): Promise<{ read: number }> {
+    return this.request('POST', '/api/v1/notifications/read', id === undefined ? {} : { id });
+  }
+
+  // --- rankings ---------------------------------------------------------------
+
+  async rankings(
+    options: { board?: string; period?: string; limit?: number } = {},
+  ): Promise<RankingsRecord> {
+    const params = new URLSearchParams();
+    if (options.board) params.set('board', options.board);
+    if (options.period) params.set('period', options.period);
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    const search = params.toString();
+    return this.request('GET', `/api/v1/rankings${search === '' ? '' : `?${search}`}`);
   }
 
   // --- inbox and billing --------------------------------------------------
@@ -455,7 +639,10 @@ export class BoardClient {
 
   // --- recommendations --------------------------------------------------
 
-  async recommendations(subject: { candidate?: string; org?: string }): Promise<{ items: RecommendationLike[]; total: number }> {
+  async recommendations(subject: {
+    candidate?: string;
+    org?: string;
+  }): Promise<{ items: RecommendationLike[]; total: number }> {
     const path =
       subject.candidate !== undefined && subject.candidate !== ''
         ? `/api/v1/candidates/${encodeURIComponent(subject.candidate)}/recommendations`
@@ -474,7 +661,11 @@ export class BoardClient {
     return this.request('POST', path, input);
   }
 
-  async myRecommendations(): Promise<{ received: RecommendationLike[]; given: RecommendationLike[]; pending: number }> {
+  async myRecommendations(): Promise<{
+    received: RecommendationLike[];
+    given: RecommendationLike[];
+    pending: number;
+  }> {
     return this.request('GET', '/api/v1/me/recommendations');
   }
 
