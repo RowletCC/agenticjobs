@@ -362,6 +362,37 @@ export async function updateAgent(
   slug: string,
   input: AgentInput,
 ): Promise<Agent> {
+  if (input.operator === undefined || !isPool(pool)) {
+    return updateAgentOn(pool, ownerId, slug, input);
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await client.query('select id from users where id = $1 for update', [ownerId]);
+    const updated = await updateAgentOn(client, ownerId, slug, input);
+    await client.query('commit');
+    return updated;
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function isPool(pool: AgentQueryable): pool is pg.Pool {
+  return (
+    typeof (pool as pg.Pool).connect === 'function' &&
+    typeof (pool as pg.PoolClient).release !== 'function'
+  );
+}
+
+async function updateAgentOn(
+  pool: AgentQueryable,
+  ownerId: string,
+  slug: string,
+  input: AgentInput,
+): Promise<Agent> {
   const row = await ownedRow(pool, slug, ownerId);
   const sets: string[] = [];
   const params: unknown[] = [];
@@ -422,9 +453,10 @@ export async function assignOperator(
   const client = await pool.connect();
   try {
     await client.query('begin');
+    await client.query('select id from users where id = $1 for update', [ownerId]);
     const operator = await ownedRow(client, operatorSlug, ownerId);
     for (const slug of agentSlugs) {
-      await updateAgent(client, ownerId, slug, { operator: operator.slug });
+      await updateAgentOn(client, ownerId, slug, { operator: operator.slug });
     }
     const refreshed = await getAgent(client, operator.slug, ownerId);
     if (refreshed === null) throw new Error('operator vanished during assignment');
