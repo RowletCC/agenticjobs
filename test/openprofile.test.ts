@@ -114,6 +114,20 @@ test('an operator with a profile URL links to it, and a stated kind wins over ca
   );
 });
 
+test('a mailto operator link preserves its visible name and actual email address', () => {
+  const md = openProfileFromResume(
+    source(`# Athena
+
+- **Agents**: 3
+- **Operated by**: [Ada Lovelace](mailto:ada@example.com)
+`),
+  );
+  assert.ok(
+    md.includes('## Operator\n\n- **Name**: Ada Lovelace\n- **Email**: ada@example.com'),
+    md,
+  );
+});
+
 test('what the redaction gate withheld from the resume stays out of the profile', () => {
   const { markdown, redacted } = redactContactChannels(RESUME);
   assert.equal(redacted, true);
