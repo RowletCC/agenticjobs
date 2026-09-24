@@ -47,6 +47,7 @@ import { APPLICATION_DECISIONS, isApplicationDecision } from '../schema/job.ts';
 // rather than keeping a second copy of them in step by hand.
 import { VISIBILITIES } from '../core/resumes.ts';
 import type { Job, JobQuery, Organisation } from '../schema/index.ts';
+import { MAX_LIMIT } from '../schema/query.ts';
 
 const USAGE = `agenticjobs ${VERSION} - an agent-friendly job board you can self-host
 
@@ -585,8 +586,19 @@ function queryFrom(args: Args): Partial<JobQuery> {
   }
   const min = flagNumber(args, 'min', 'salary-min');
   if (min !== undefined) query.salaryMin = min;
-  const limit = flagNumber(args, 'limit', 'n');
-  if (limit !== undefined) query.limit = limit;
+  const limit = flagString(args, 'limit', 'n');
+  if (limit !== undefined) {
+    const parsed = Number(limit);
+    if (
+      !/^[+-]?\d+$/.test(limit.trim()) ||
+      !Number.isSafeInteger(parsed) ||
+      parsed < 1 ||
+      parsed > MAX_LIMIT
+    ) {
+      throw new Error(`--limit must be a whole number from 1 to ${MAX_LIMIT}.`);
+    }
+    query.limit = parsed;
+  }
   return query;
 }
 
