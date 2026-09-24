@@ -58,6 +58,15 @@ test('explicit links and non-link facts retain their written values', () => {
   ]);
 });
 
+test('angle-bracketed Markdown destinations stay linkable in contact bullets', () => {
+  const contact = parseResume('# Ada\n\n- [Portfolio](<https://example.com/ada>)').contact[0];
+  assert.deepEqual(contact, {
+    key: 'Portfolio',
+    value: 'Portfolio',
+    href: 'https://example.com/ada',
+  });
+});
+
 test('a bold key parses the same wherever the marker closes', () => {
   // "- **Tel:** +49" closes the bold after the colon and "- **Tel: +49**"
   // wraps the whole bullet. Both used to leave a `**` inside the value,

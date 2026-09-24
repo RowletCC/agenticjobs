@@ -284,6 +284,18 @@ function parseDocument(source: string): { resume: OpenResume; body: string } {
 export function parseMarkdownLink(text: string): { label: string; href: string; end: number } | null {
   const opening = /^\[([^\]]+)\]\(/.exec(text);
   if (opening === null) return null;
+  const angleDestination = /^\[([^\]]+)\]\(<((?:\\.|[^<>\\\n])*)>(?:\s+"[^"]*")?\)/.exec(
+    text,
+  );
+  if (angleDestination !== null) {
+    const href = (angleDestination[2] ?? '').replace(/\\([()<>\\])/g, '$1');
+    if (href === '') return null;
+    return {
+      label: angleDestination[1] ?? '',
+      href,
+      end: angleDestination[0].length - 1,
+    };
+  }
   let href = '';
   let depth = 0;
   for (let index = opening[0].length; index < text.length; index += 1) {
