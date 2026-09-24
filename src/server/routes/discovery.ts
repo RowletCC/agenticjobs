@@ -217,13 +217,19 @@ export function discoveryRoutes(): Hono<AppEnv> {
     const { pool, config } = c.get('deps');
     const query = { ...parseQuery(new URL(c.req.url).searchParams), limit: 100 };
     const page = await searchJobs(pool, query);
+    const selfParams = queryToParams(query);
+    // This feed always serves 100 items, regardless of the requested limit.
+    // Preserve the effective filters and offset so a reader subscribing from
+    // a filtered URL does not silently switch to the whole board.
+    selfParams.delete('limit');
+    const selfSearch = selfParams.toString();
     // JSON Feed, so an ordinary feed reader can follow a job board.
     return c.json(
       {
         version: 'https://jsonfeed.org/version/1.1',
         title: `${config.boardName} - open roles`,
         home_page_url: config.publicUrl,
-        feed_url: `${config.publicUrl}/jobs.json`,
+        feed_url: `${config.publicUrl}/jobs.json${selfSearch === '' ? '' : `?${selfSearch}`}`,
         description: config.boardTagline,
         items: page.items.map((job) => ({
           id: `${config.publicUrl}/jobs/${job.slug}`,
