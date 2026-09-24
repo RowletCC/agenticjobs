@@ -29,6 +29,12 @@ test('plus bullets produce the same skills and tag counts as other list markers'
   });
 });
 
+test('numbered skill lists expose the skill text without their list numbers', () => {
+  const summary = candidate('1. TypeScript\n2) Rust\n10. Python');
+  assert.deepEqual(summary.skills, ['TypeScript', 'Rust', 'Python']);
+  assert.deepEqual(withTags([summary], ['typescript', 'rust', 'python']), [summary]);
+});
+
 test('removing a list marker preserves plus and hash characters in skill names', () => {
   const summary = candidate('+ C++\n- C#\n* F#\n+ C++');
   assert.deepEqual(summary.skills, ['C++', 'C#', 'F#']);
