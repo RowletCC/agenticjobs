@@ -308,7 +308,10 @@ export async function updateResume(
         set markdown = $3,
             parsed = $4::jsonb,
             title = coalesce(nullif($5, ''), title),
-            visibility = coalesce($6, visibility)
+            visibility = coalesce($6, visibility),
+            source_name = case when $3 is distinct from markdown then null else source_name end,
+            source_mime = case when $3 is distinct from markdown then null else source_mime end,
+            source_bytes = case when $3 is distinct from markdown then null else source_bytes end
       where user_id = $1 and slug = $2
       returning id, user_id, slug, title, markdown, parsed, visibility, public_slug,
                 source_name, created_at, updated_at`,
