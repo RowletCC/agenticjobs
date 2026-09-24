@@ -102,9 +102,11 @@ export async function runRankings(
   const period = flagString(args, 'period') ?? 'month';
   const wanted = board === 'popular' && flagString(args, 'board') === 'applied' ? 'applied' : board;
   const result = await client.rankings({ board: wanted, period, limit: 25 });
+  // The board may fall back to its default for an unsupported period.
+  const shownPeriod = result.period || period;
   const first = result.boards[0];
   if (first === undefined || first.rows.length === 0) {
-    return out(`Nothing to rank ${period === 'all' ? 'yet' : `this ${period}`}.`, result);
+    return out(`Nothing to rank ${shownPeriod === 'all' ? 'yet' : `this ${shownPeriod}`}.`, result);
   }
   const width = Math.max(...first.rows.map((row) => row.display.length));
   const lines = first.rows.map(
@@ -112,7 +114,7 @@ export async function runRankings(
       `${String(row.rank ?? '').padStart(3)}  ${row.display.padStart(width)}  ${row.name}  ${dim(row.slug)}`,
   );
   return out(
-    `${bold(first.label)} ${dim(`(${first.unit.toLowerCase()}, ${period})`)}\n${lines.join('\n')}`,
+    `${bold(first.label)} ${dim(`(${first.unit.toLowerCase()}, ${shownPeriod})`)}\n${lines.join('\n')}`,
     result,
   );
 }
