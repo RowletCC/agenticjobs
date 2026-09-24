@@ -36,6 +36,12 @@ test('order does not matter on the way in, and the canonical path puts tags firs
   );
 });
 
+test('duplicate tags produce a canonical path that parses back', () => {
+  const path = pathForQuery({ ...EMPTY_QUERY, tags: ['rust', 'rust'] });
+  assert.equal(path, '/rust');
+  assert.deepEqual(queryFromPath(path!), { ...EMPTY_QUERY, tags: ['rust'] });
+});
+
 test('a filter given twice, a repeated tag or a file-looking segment is not a page', () => {
   assert.equal(queryFromPath('/rust/remote/onsite'), null);
   assert.equal(queryFromPath('/rust/rust'), null);
